@@ -1,0 +1,20 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  swift-build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build debug products
+        run: swift build
+      - name: Build release products
+        run: swift build -c release
+      - name: Check CLI argument handling
+        run: .build/release/double-click-key-test send --dry-run

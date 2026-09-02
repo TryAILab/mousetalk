@@ -1,0 +1,11 @@
+.DS_Store
+.build/
+.swiftpm/
+dist/
+Backups/
+DerivedData/
+*.app
+*.dSYM
+xcuserdata/
+.idea/
+.vscode/
