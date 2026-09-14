@@ -23,6 +23,12 @@ in memory. It does not read text fields, window contents or clipboard contents.
 GUI scan results are not persisted or transmitted. The diagnostic CLI prints
 its report to the caller and should not be shared without reviewing it.
 
+The permission help popover also offers an explicit repair action. It invokes
+`tccutil reset` only for this app's bundle identifier and the chosen service
+(Input Monitoring or Accessibility). This removes a stale authorization;
+it never grants access or edits the TCC database. The user must authorize the
+current application again in System Settings.
+
 ## Safer use
 
 - Build from a reviewed source revision.

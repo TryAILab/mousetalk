@@ -9,3 +9,6 @@ DerivedData/
 xcuserdata/
 .idea/
 .vscode/
+
+# Local code-signing identity (certificate stays in the keychain).
+.signing-identity

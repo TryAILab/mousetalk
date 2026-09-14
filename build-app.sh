@@ -25,9 +25,15 @@ mkdir -p "$staging_app/Contents/Resources"
 iconutil -c icns "$staging_root/brand/MouseTalk.iconset" -o "$staging_app/Contents/Resources/MouseTalk.icns"
 chmod 755 "$staging_app/Contents/MacOS/DoubleClickMouse"
 
-if [[ -n "${SIGNING_IDENTITY:-}" ]]; then
-  codesign --force --deep --options runtime --sign "$SIGNING_IDENTITY" "$staging_app"
-  echo "Signed with the identity supplied through SIGNING_IDENTITY."
+# A developer can pin a local identity once; it is never committed or
+# auto-selected from the keychain. An explicit environment value wins.
+signing_identity="${SIGNING_IDENTITY:-}"
+if [[ -z "$signing_identity" && -f "$project_dir/.signing-identity" ]]; then
+  signing_identity="$(<"$project_dir/.signing-identity")"
+fi
+if [[ -n "$signing_identity" ]]; then
+  codesign --force --deep --options runtime --sign "$signing_identity" "$staging_app"
+  echo "Signed with the configured identity (SIGNING_IDENTITY or .signing-identity)."
 else
   codesign --force --deep --sign - "$staging_app"
   echo "Used ad-hoc signing. Rebuilds may require permissions again."
