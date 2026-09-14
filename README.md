@@ -45,8 +45,8 @@ grant them if you trust the executable you are running.
 ## Build the app
 
 ```bash
-git clone https://github.com/TryAILab/double-click-mouse.git
-cd double-click-mouse
+git clone https://github.com/TryAILab/mousetalk.git
+cd mousetalk
 ./build-app.sh
 open "dist/MouseTalk.app"
 ```
@@ -110,10 +110,8 @@ are imported from the earlier `com.tryailab.doubao-mouse` experiment; source
 preferences remain intact. Moving from that differently identified app may
 require fresh macOS privacy permissions. Run only one version at a time.
 
-Repository check on 2026-09-14: the local base was `ad00d18`; the old AaronZ021
-URL redirects to TryAILab. GitHub reported that destination as an empty Git
-repository, so there was no remote commit to compare or pull. This local checkout
-had no configured remote. Publishing source remains a separate action.
+Source repository: [TryAILab/mousetalk](https://github.com/TryAILab/mousetalk).
+The project retains the original Double Click Mouse commit history.
 
 ## CLI event experiment
 
