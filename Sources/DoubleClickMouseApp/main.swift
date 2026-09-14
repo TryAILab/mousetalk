@@ -3,6 +3,7 @@ import ApplicationServices
 import AppKit
 import CoreGraphics
 import SwiftUI
+import UniformTypeIdentifiers
 import MouseTalkKit
 
 private enum OutputKey: String, CaseIterable, Identifiable {
@@ -67,8 +68,8 @@ private enum EventShape: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .keyboard: "标准 keyDown / keyUp（推荐）"
-        case .flagsChanged: "修饰键 flagsChanged（兼容测试）"
+        case .keyboard: "标准模式（推荐）"
+        case .flagsChanged: "兼容模式（标准模式无效时尝试）"
         }
     }
 }
@@ -81,7 +82,7 @@ private enum BindingTarget {
     var title: String {
         switch self {
         case .voice: "语音快捷键"
-        case .confirm: "Return"
+        case .confirm: "回车发送"
         case .backspace: "退格"
         }
     }
@@ -341,7 +342,12 @@ private final class AppController: ObservableObject {
     @Published var canPost = false
     @Published var captureTarget: BindingTarget?
     @Published var monitorRunning = false
-    @Published var status = "等待权限检查…"
+    @Published var status = "按下面的步骤设置，设置会自动保存。"
+    @Published var testCountdown = 0
+    @Published var voiceAppPath = UserDefaults.standard.string(forKey: "voiceAppPath") ?? "" {
+        didSet { UserDefaults.standard.set(voiceAppPath, forKey: "voiceAppPath") }
+    }
+    private var testTimer: Timer?
     @Published var conflictReport: ConflictReport?
     @Published var checkingConflicts = false
     @Published var bindingNotice = ""
@@ -392,7 +398,11 @@ private final class AppController: ObservableObject {
         }
     }
     @Published var outputKey: OutputKey {
-        didSet { defaults.set(outputKey.rawValue, forKey: "outputKey"); scheduleConflictCheck() }
+        didSet {
+            if secondKeyRawValue == outputKey.rawValue { secondKeyRawValue = "" }
+            defaults.set(outputKey.rawValue, forKey: "outputKey")
+            scheduleConflictCheck()
+        }
     }
     @Published var secondKeyRawValue: String {
         didSet {
@@ -460,6 +470,8 @@ private final class AppController: ObservableObject {
             UserDefaults.standard.set(true, forKey: "didMigrateToOneShotModifierEvents")
         }
 
+        if secondKeyRawValue == outputKey.rawValue { secondKeyRawValue = "" }
+
         monitor.onButtonDown = { [weak self] button in
             self?.handleMouseButtonDown(button)
         }
@@ -481,6 +493,7 @@ private final class AppController: ObservableObject {
 
     deinit {
         permissionTimer?.invalidate()
+        testTimer?.invalidate()
         if let terminationObserver {
             NotificationCenter.default.removeObserver(terminationObserver)
         }
@@ -496,13 +509,6 @@ private final class AppController: ObservableObject {
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             self?.refreshPermissions()
         }
-    }
-
-    func requestPermissions() {
-        _ = CGRequestListenEventAccess()
-        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-        _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
-        refreshPermissions()
     }
 
     func refreshPermissions() {
@@ -522,15 +528,43 @@ private final class AppController: ObservableObject {
             monitorRunning = false
         }
 
-        if !listen || !post {
-            emitter.endBackspace()
-            status = "请授予 Input Monitoring 和 Accessibility 权限。授权后可能需要重新打开应用。"
-        } else if !monitorRunning {
-            status = "权限已授予，但鼠标监听器尚未启动；请重新打开应用。"
-        } else if selectedButton == nil || returnButton == nil || backspaceButton == nil {
-            status = "权限正常。可以分别绑定语音、Return 和退格按钮。"
-        } else {
-            status = "正在监听语音、Return 和退格三个鼠标按钮。"
+        if !listen || !post { emitter.endBackspace() }
+    }
+
+    var readiness: String {
+        if !canListen || !canPost { return "下一步：打开下面两项权限。" }
+        if !monitorRunning { return "权限已开启，请退出并重新打开鼠语，让鼠标监听生效。" }
+        if captureTarget != nil { return "正在等待你按下鼠标按钮…" }
+        if !isEnabled { return "已暂停 · 打开“启用鼠标控制”后继续使用。" }
+        if selectedButton == nil { return "下一步：确认语音软件的快捷键，再绑定一个鼠标侧键。" }
+        return "鼠标控制已启用 · 请按第 4 步试说一句，确认语音软件能响应。"
+    }
+
+    var voiceAppName: String {
+        voiceAppPath.isEmpty ? "" : URL(fileURLWithPath: voiceAppPath).deletingPathExtension().lastPathComponent
+    }
+
+    func chooseVoiceApp() {
+        let panel = NSOpenPanel()
+        panel.title = "选择你用来语音输入的软件"
+        panel.prompt = "选择"
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        voiceAppPath = url.path
+        openVoiceApp()
+    }
+
+    func openVoiceApp() {
+        guard !voiceAppPath.isEmpty else { chooseVoiceApp(); return }
+        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: voiceAppPath), configuration: .init()) { [weak self] _, error in
+            DispatchQueue.main.async {
+                self?.status = error == nil
+                    ? "已打开语音软件。请在它自己的设置中找到语音输入快捷键，再回到鼠语选择相同的按键。"
+                    : "无法打开所选软件，请点击“重新选择”找到它的新位置。"
+            }
         }
     }
 
@@ -559,33 +593,63 @@ private final class AppController: ObservableObject {
         status = "已清除“\(target.title)”绑定。"
     }
 
+    func cancelTest() {
+        testTimer?.invalidate()
+        testTimer = nil
+        testCountdown = 0
+        status = "已取消试用。"
+    }
+
     func testOutput() {
+        guard testCountdown == 0 else { return }
         refreshPermissions()
         guard canPost else {
-            status = "还不能发送快捷键。请先授予 Accessibility 权限。"
+            status = "请先打开“辅助功能”权限，再试用语音快捷键。"
             return
         }
         let keys = configuredKeys
-        emitter.emit(keys: keys, shape: eventShape)
-        status = "已发送：\(shortcutTitle)。"
+        let shape = eventShape
+        let title = shortcutTitle
+        testCountdown = 3
+        status = "请切换到要输入文字的软件，点一下输入框；3 秒后触发一次语音快捷键。"
+        testTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            self.testCountdown -= 1
+            guard self.testCountdown == 0 else { return }
+            timer.invalidate()
+            self.testTimer = nil
+            guard AXIsProcessTrusted() else {
+                self.status = "试用未执行：请打开“辅助功能”权限。"
+                return
+            }
+            self.emitter.emit(keys: keys, shape: shape)
+            self.status = "已触发一次 \(title)。如果没有出现语音输入，请检查两边的快捷键是否一致。"
+        }
     }
 
     func openAccessibilitySettings() {
+        if !canPost {
+            let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+            _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
+        }
         openSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
     }
 
     func openInputMonitoringSettings() {
+        if !canListen { _ = CGRequestListenEventAccess() }
         openSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
     }
 
     private func openSettings(_ value: String) {
         guard let url = URL(string: value) else { return }
-        NSWorkspace.shared.open(url)
+        if !NSWorkspace.shared.open(url) {
+            status = "未能打开系统设置，请手动前往：系统设置 → 隐私与安全性 → 输入监控／辅助功能。"
+        }
     }
 
     private func handleMouseButtonDown(_ button: Int) {
         if let target = captureTarget {
-            let previous: [(Int?, String)] = [(selectedButton, "语音快捷键"), (returnButton, "Return"), (backspaceButton, "退格")]
+            let previous: [(Int?, String)] = [(selectedButton, "语音快捷键"), (returnButton, "回车发送"), (backspaceButton, "退格")]
             let replaced = previous.filter { $0.0 == button && $0.1 != target.title }.map { $0.1 }
             bindingNotice = replaced.isEmpty ? "" : "这个按钮原来绑定了“\(replaced.joined(separator: "、"))”，已改为“\(target.title)”。"
             switch target {
@@ -604,7 +668,7 @@ private final class AppController: ObservableObject {
             }
             captureTarget = nil
             isEnabled = true
-            status = "“\(target.title)”绑定成功：button \(button + 1)。"
+            status = "“\(target.title)”绑定成功：鼠标按钮 \(button + 1)。"
             return
         }
 
@@ -612,7 +676,7 @@ private final class AppController: ObservableObject {
 
         if backspaceButton == button {
             emitter.beginBackspace()
-            status = "鼠标 button \(button + 1) → 退格（按住可连续删除）"
+            status = "鼠标按钮 \(button + 1) → 退格（按住可连续删除）"
             return
         }
 
@@ -628,17 +692,17 @@ private final class AppController: ObservableObject {
 
         if selectedButton == button {
             emitter.emit(keys: configuredKeys, shape: eventShape)
-            status = "鼠标 button \(button + 1) → \(shortcutTitle)"
+            status = "鼠标按钮 \(button + 1) → \(shortcutTitle)"
         } else {
             emitter.emitReturn()
-            status = "鼠标 button \(button + 1) → Return"
+            status = "鼠标按钮 \(button + 1) → 回车"
         }
     }
 
     private func handleMouseButtonUp(_ button: Int) {
         guard backspaceButton == button else { return }
         emitter.endBackspace()
-        status = "鼠标 button \(button + 1) → 退格已释放"
+        status = "鼠标按钮 \(button + 1) → 退格已释放"
     }
 
     private func refreshSuppressedButtons() {
@@ -702,6 +766,7 @@ private final class AppController: ObservableObject {
 
 private struct PermissionRow: View {
     let name: String
+    let purpose: String
     let granted: Bool
     let openSettings: () -> Void
 
@@ -709,11 +774,13 @@ private struct PermissionRow: View {
         HStack {
             Image(systemName: granted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .foregroundStyle(granted ? .green : .orange)
-            Text(name)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(name)
+                Text(purpose).font(.caption).foregroundStyle(.secondary)
+            }
             Spacer()
-            Text(granted ? "已授权" : "未授权")
-                .foregroundStyle(.secondary)
-            Button("打开设置", action: openSettings)
+            Text(granted ? "已开启" : "待开启").foregroundStyle(.secondary)
+            Button(granted ? "查看设置" : "去开启", action: openSettings)
         }
     }
 }
@@ -726,157 +793,140 @@ private struct ContentView: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 16) {
                     Image(nsImage: MouseTalkBrand.image())
-                        .resizable().frame(width: 76, height: 76)
+                        .resizable().frame(width: 64, height: 64)
                         .accessibilityLabel("鼠语标志：鼠标形状的老鼠头像")
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("鼠语").font(.largeTitle.bold())
-                        Text("MouseTalk").font(.title3).foregroundStyle(.secondary)
+                        Text("鼠语 MouseTalk").font(.title.bold())
+                        Text("把鼠标变成语音输入的遥控器。")
                     }
                     Spacer()
                 }
-                Text("随口说，随手发。用鼠标触发语音输入、发送和退格。")
+                Text("按一下鼠标侧键，调用你已有的语音输入软件，把话变成文字；再用另一个按钮按回车发送。鼠语本身不录音，也不做语音识别。")
                     .foregroundStyle(.secondary)
+                Label(controller.readiness, systemImage: controller.canListen && controller.canPost && controller.monitorRunning && controller.isEnabled && controller.selectedButton != nil ? "checkmark.circle" : "info.circle")
+                    .font(.callout)
 
-                GroupBox("1. 权限") {
-                    VStack(spacing: 10) {
-                        PermissionRow(
-                            name: "Input Monitoring（监听鼠标）",
-                            granted: controller.canListen,
-                            openSettings: controller.openInputMonitoringSettings
-                        )
-                        PermissionRow(
-                            name: "Accessibility（发送按键、检查菜单）",
-                            granted: controller.canPost,
-                            openSettings: controller.openAccessibilitySettings
-                        )
-                        HStack {
-                            Button("请求并刷新权限", action: controller.requestPermissions)
-                            Text("首次授权后若状态未更新，请退出并重新打开应用。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.top, 6)
-                }
-
-                GroupBox("2. 目标应用设置") {
-                    Text("先在目标应用中选择一个修饰键或双修饰键组合作为快捷键；下面的输出设置必须与目标应用保持一致。")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 6)
-                }
-
-                GroupBox("3. 绑定鼠标按钮") {
+                GroupBox("1. 开启两项权限") {
                     VStack(alignment: .leading, spacing: 10) {
+                        PermissionRow(name: "输入监控", purpose: "让鼠语识别你按了哪个鼠标按钮。", granted: controller.canListen, openSettings: controller.openInputMonitoringSettings)
+                        PermissionRow(name: "辅助功能", purpose: "让鼠语替你按快捷键、回车和退格。", granted: controller.canPost, openSettings: controller.openAccessibilitySettings)
+                        Text("点击“去开启”，在系统设置里打开“鼠语 MouseTalk”的开关。如果列表里没有它，点击 ＋，添加“应用程序”里的 MouseTalk.app。")
+                            .font(.caption).foregroundStyle(.secondary)
                         HStack {
-                            Text("语音快捷键：")
-                                .frame(width: 80, alignment: .leading)
-                            Text(controller.selectedButton.map { "CG button \($0)（button \($0 + 1)）" } ?? "尚未绑定")
-                                .fontWeight(.semibold)
-                            Spacer()
-                            Button("绑定") { controller.beginCapture(.voice) }
-                            Button("清除") { controller.clearBinding(.voice) }
-                                .disabled(controller.selectedButton == nil)
+                            Button("刷新状态", action: controller.refreshPermissions)
+                            Text("开启后若仍未生效，请退出并重新打开鼠语。")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
+                    }.padding(.top, 6)
+                }
+
+                GroupBox("2. 告诉鼠语：按哪个键能开始说话") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("先在你的语音输入软件里找到“语音输入快捷键”，再在下面选成一样的。")
                         HStack {
-                            Text("确认发送：")
-                                .frame(width: 80, alignment: .leading)
-                            Text(controller.returnButton.map { "CG button \($0)（button \($0 + 1)）→ Return" } ?? "尚未绑定")
-                                .fontWeight(.semibold)
-                            Spacer()
-                            Button("绑定") { controller.beginCapture(.confirm) }
-                            Button("清除") { controller.clearBinding(.confirm) }
-                                .disabled(controller.returnButton == nil)
+                            if controller.voiceAppPath.isEmpty {
+                                Button("选择并打开语音软件…", action: controller.chooseVoiceApp)
+                            } else {
+                                Button("打开 \(controller.voiceAppName)", action: controller.openVoiceApp)
+                                Button("重新选择…", action: controller.chooseVoiceApp)
+                            }
                         }
-                        HStack {
-                            Text("删除文字：")
-                                .frame(width: 80, alignment: .leading)
-                            Text(controller.backspaceButton.map { "CG button \($0)（button \($0 + 1)）→ 退格" } ?? "尚未绑定")
-                                .fontWeight(.semibold)
-                            Spacer()
-                            Button("绑定") { controller.beginCapture(.backspace) }
-                            Button("清除") { controller.clearBinding(.backspace) }
-                                .disabled(controller.backspaceButton == nil)
+                        Text("例如：如果语音软件设为“右 Option”，这里也选“右 Option”，第二个键选“无”。选择软件只是方便打开，不会自动读取或修改它的设置。")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                            GridRow {
+                                Text("语音快捷键")
+                                Picker("语音快捷键", selection: $controller.outputKey) {
+                                    ForEach(OutputKey.allCases) { Text($0.title).tag($0) }
+                                }.labelsHidden()
+                            }
+                            GridRow {
+                                Text("同时按住的第二个键")
+                                Picker("同时按住的第二个键", selection: $controller.secondKeyRawValue) {
+                                    Text("无（只按一个键）").tag("")
+                                    ForEach(OutputKey.allCases.filter { $0 != controller.outputKey }) { Text($0.title).tag($0.rawValue) }
+                                }.labelsHidden()
+                            }
                         }
+                        Text("鼠语会替你按：\(controller.shortcutTitle)").fontWeight(.medium)
+                        Text("目前支持单按 Fn、Control、Option、Command，或同时按其中两个键。请选单按触发；暂不支持双击、长按说话，或带字母／空格的快捷键。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 6)
+                }
+
+                GroupBox("3. 挑一个鼠标按钮来控制语音") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("点击“绑定”，再按一下鼠标侧键或滚轮中键。左键和右键保留正常使用。")
+                        bindingRow("语音输入", button: controller.selectedButton, target: .voice)
+                        bindingRow("回车发送（选填）", button: controller.returnButton, target: .confirm)
+                        bindingRow("删除文字（选填）", button: controller.backspaceButton, target: .backspace)
+                        Text("只绑定语音按钮就能用。发送按钮相当于按回车：聊天软件需设为“回车发送”，否则可能换行。删除按钮按一下删一次，按住可连续删除。")
+                            .font(.caption).foregroundStyle(.secondary)
                         if !controller.bindingNotice.isEmpty {
                             Text(controller.bindingNotice).font(.callout).foregroundStyle(.orange)
                         }
                         if let target = controller.captureTarget {
                             HStack {
+                                Text("现在按一下要用于“\(target.title)”的鼠标按钮…").foregroundStyle(.orange)
                                 Button("取消", action: controller.cancelCapture)
-                                Text("现在按一下要绑定为“\(target.title)”的鼠标侧键…")
-                                    .foregroundStyle(.orange)
                             }
                         }
-                        HStack {
-                            Toggle("启用映射", isOn: $controller.isEnabled)
-                                .toggleStyle(.switch)
-                            Text("启用后会阻止已绑定侧键原本的前进/后退动作。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Text("退格键点击一次删除一次；持续按住鼠标按钮会按系统键盘重复速度连续删除。同一个按钮不能同时承担两个动作。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 6)
+                        Toggle("启用鼠标控制", isOn: $controller.isEnabled).toggleStyle(.switch)
+                        Text("绑定后自动启用，原来的前进／后退等动作会被替换。同一按钮只能做一件事；关闭开关即可恢复原来的动作。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 6)
                 }
 
-                GroupBox("4. 输出快捷键") {
-                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                        GridRow {
-                            Text("按键")
-                            Picker("按键", selection: $controller.outputKey) {
-                                ForEach(OutputKey.allCases) { key in
-                                    Text(key.title).tag(key)
-                                }
+                GroupBox("4. 试说一句") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("打开聊天软件或备忘录，点一下输入框 → 按已绑定的语音按钮 → 说一句话 → 按语音软件的方式结束录音，确认文字出现。")
+                        Text("如果语音软件支持“再按一次结束”，再按同一个鼠标按钮即可。确认文字后，需要发送时再按你绑定的发送按钮。")
+                            .font(.caption).foregroundStyle(.secondary)
+                        HStack {
+                            if controller.testCountdown > 0 {
+                                Text("\(controller.testCountdown) 秒后触发，请切换到输入框…")
+                                Button("取消试用", action: controller.cancelTest)
+                            } else {
+                                Button("3 秒后试用语音快捷键", action: controller.testOutput)
+                                    .disabled(!controller.canPost)
                             }
-                            .labelsHidden()
                         }
-                        GridRow {
-                            Text("第二个键")
-                            Picker("第二个键", selection: $controller.secondKeyRawValue) {
-                                Text("无（单键）").tag("")
-                                ForEach(OutputKey.allCases) { key in
-                                    Text(key.title).tag(key.rawValue)
-                                }
-                            }
-                            .labelsHidden()
-                        }
-                        GridRow {
-                            Text("实际输出")
-                            Text("\(controller.shortcutTitle)（keycode \(controller.shortcutKeyCodes)）")
-                                .font(.caption.monospaced())
-                                .textSelection(.enabled)
-                        }
-                        GridRow {
-                            Text("事件格式")
-                            Picker("事件格式", selection: $controller.eventShape) {
-                                ForEach(EventShape.allCases) { shape in
-                                    Text(shape.title).tag(shape)
-                                }
-                            }
-                            .labelsHidden()
-                        }
-                    }
-                    .padding(.top, 6)
+                        Text("这个按钮只测试语音快捷键，不会替你按回车。平时用鼠标时，请让需要接收文字的输入框保持选中。")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text(controller.status).font(.callout).textSelection(.enabled)
+                        Text("设置自动保存。关闭这个窗口后鼠语仍在运行，从菜单栏的鼠语图标可再次打开设置或退出。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 6)
                 }
 
                 ConflictCheckView(controller: controller)
 
-                HStack {
-                    Button("直接测试输出", action: controller.testOutput)
-                        .keyboardShortcut(.defaultAction)
-                    Text(controller.status)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                DisclosureGroup("按了没反应？排查与高级设置") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("• 键盘直接按也没反应：先检查语音软件是否运行、快捷键是否正确，以及它自己的麦克风权限。")
+                        Text("• 键盘能用，鼠标不行：检查鼠语的两项权限、绑定和启用开关。仍无效时，尝试下面的兼容模式。")
+                        Text("• 绑定时识别不到按钮：鼠语只能识别标准鼠标按钮；Logi Options+ 等驱动可能已将它改成手势或其他按键，请先在驱动里检查。")
+                        Picker("快捷键兼容模式", selection: $controller.eventShape) {
+                            ForEach(EventShape.allCases) { Text($0.title).tag($0) }
+                        }
+                        Text("诊断信息：keycode \(controller.shortcutKeyCodes)").font(.caption.monospaced())
+                    }.font(.callout).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
                 }
-            }
-            .padding(20)
+            }.padding(20)
         }
         .frame(minWidth: 640, minHeight: 680)
         .onAppear { controller.start() }
+    }
+
+    private func bindingRow(_ title: String, button: Int?, target: BindingTarget) -> some View {
+        HStack {
+            Text(title).frame(width: 140, alignment: .leading)
+            Text(button.map { "鼠标按钮 \($0 + 1)" } ?? "未绑定").fontWeight(.medium)
+            Spacer()
+            Button(button == nil ? "绑定" : "重新绑定") { controller.beginCapture(target) }
+                .disabled(!controller.monitorRunning)
+            Button("清除") { controller.clearBinding(target) }.disabled(button == nil)
+        }
     }
 }
 
@@ -889,11 +939,14 @@ private struct MenuContent: View {
             NSApp.activate(ignoringOtherApps: true)
             openWindow(id: "settings")
         }
-        Button("测试：\(controller.shortcutTitle)") {
-            controller.testOutput()
+        if controller.testCountdown > 0 {
+            Button("取消试用（\(controller.testCountdown) 秒）", action: controller.cancelTest)
+        } else {
+            Button("3 秒后试用：\(controller.shortcutTitle)", action: controller.testOutput)
+                .disabled(!controller.canPost)
         }
         Divider()
-        Toggle("启用鼠标映射", isOn: $controller.isEnabled)
+        Toggle("启用鼠标控制", isOn: $controller.isEnabled)
         Divider()
         Button("退出") { NSApp.terminate(nil) }
     }
@@ -903,7 +956,7 @@ private struct ConflictCheckView: View {
     @ObservedObject var controller: AppController
 
     var body: some View {
-        GroupBox("5. 快捷键冲突检查") {
+        GroupBox("快捷键有没有被其他软件使用？（自动检查）") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     if controller.checkingConflicts {
@@ -911,6 +964,8 @@ private struct ConflictCheckView: View {
                         Text("正在检查系统与应用公开的快捷键…").font(.callout)
                     } else if controller.selectedButton == nil && controller.returnButton == nil && controller.backspaceButton == nil {
                         Text("请先绑定鼠标按钮")
+                    } else if controller.conflictReport == nil {
+                        Text("尚未检查，点击“重新检查”开始")
                     } else {
                         Text(controller.conflictReport?.findings.isEmpty == false ? "发现可能重合的绑定" : "已检查范围内未发现重合")
                             .fontWeight(.medium)
@@ -919,7 +974,7 @@ private struct ConflictCheckView: View {
                     Button("重新检查", action: controller.checkConflicts)
                         .disabled(controller.checkingConflicts)
                 }
-                Text("与目标语音软件使用相同快捷键是预期行为；下列记录需结合实际用途判断，不会自动改动其他软件。")
+                Text("如果这里出现你要控制的语音软件，通常是正常的；如果出现其他软件，请检查是否会一起触发。鼠语不会改动它们的设置。")
                     .font(.caption).foregroundStyle(.secondary)
                 if let report = controller.conflictReport {
                     ForEach(report.findings) { item in

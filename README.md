@@ -1,122 +1,140 @@
 # 鼠语 MouseTalk
 
-<img src="Assets/MouseTalk.png" width="96" alt="MouseTalk: a mouse-shaped face with a scroll wheel and voice waves">
+<img src="Assets/MouseTalk.png" width="96" alt="鼠语：结合鼠标、老鼠头像和声波的标志">
 
-随口说，随手发。A wireless mouse becomes a small voice-input remote.
+**把无线鼠标变成语音输入的遥控器。随口说，随手发。**
 
-A small, local-only macOS menu bar app that maps extra mouse buttons to a
-modifier shortcut, Return, or Backspace. It was originally built to control a
-voice-input shortcut without reaching for the keyboard, but it works with any
-macOS app that accepts the configured shortcut.
+已经在用豆包输入法或其他语音输入软件，却还要伸手按键盘才能开始说话？鼠语让你用鼠标侧键触发同一个快捷键，再用另一个按钮按回车发送，方便你靠在沙发上与 Agent 交流。
 
-The app does not use the network, collect analytics, record audio, or read the
-contents of your keystrokes. It listens for standard `otherMouseDown` and
-`otherMouseUp` events and emits the actions you configure. The shortcut check
-also reads system shortcut metadata, running apps' public menu commands and
-supported local remapping preferences; it never triggers those commands.
+鼠语负责“替你按键”，语音识别仍由你已有的软件完成。它不会录音，也不需要登录或联网。
 
-## Features
+## 使用前需要什么？
 
-- Bind an extra mouse button to one modifier key or a two-key combination.
-- Bind separate buttons to Return and Backspace.
-- Hold the Backspace button to repeat at the macOS keyboard-repeat rate.
-- Suppress the original action of mapped side buttons.
-- Choose regular `keyDown`/`keyUp` events or `flagsChanged` compatibility mode.
-- Keep the app available from the menu bar after closing its settings window.
-- Check for overlapping bindings, with the app, function, source and scope shown.
-- Recognize direct mouse-button mappings in the selected Karabiner profile.
-- Use the same vector mouse/rodent mark in the settings header, menu bar and app icon.
-- Use the included CLI to compare single and double synthetic modifier events.
+- macOS 13 或更新版本。
+- 有侧键或滚轮中键的鼠标；无线鼠标方便离开桌面使用。
+- 已经能正常工作的语音输入软件。先用键盘试一下，确认能唤起语音输入。
 
-## Requirements
+**快捷键需兼容：**鼠语目前可以模拟单按 Fn、左／右 Control、Option、Command，或同时按其中两个键。请在语音软件里选择对应的单按快捷键；暂不支持双击、长按说话，或带字母／空格的组合。不是所有语音软件都支持这些设置。
 
-- macOS 13 or later
-- Swift 6 toolchain (Xcode 16 or a compatible command-line toolchain)
-- A mouse whose extra buttons generate standard macOS mouse-button events
+## 安装
 
-The app needs two macOS permissions:
-
-- **Input Monitoring** to receive extra mouse-button events.
-- **Accessibility** to emit the configured keyboard events.
-
-These permissions are powerful. Build from source, inspect the code, and only
-grant them if you trust the executable you are running.
-
-## Build the app
+目前还没有可直接下载的预编译、公证安装包，需要从源码构建。构建需要 Swift 6（Xcode 16 或兼容的命令行工具）。
 
 ```bash
 git clone https://github.com/TryAILab/mousetalk.git
 cd mousetalk
 ./build-app.sh
-open "dist/MouseTalk.app"
+open dist
 ```
 
-The build script uses ad-hoc signing by default and never searches your
-keychain. To use a specific signing identity, pass it explicitly:
+把生成的 **MouseTalk.app** 放到“应用程序”文件夹，再双击打开。建议先放好位置，再授予下面的权限。
+
+## 第一次使用：四步设置
+
+### 1. 开启两项权限
+
+鼠语窗口里每项权限都有 **去开启** 按钮，可直接打开对应的系统设置页：
+
+| 权限 | 用途 |
+| --- | --- |
+| 输入监控（Input Monitoring） | 识别你按了哪个鼠标按钮 |
+| 辅助功能（Accessibility） | 替你按快捷键、回车和退格；读取公开的菜单快捷键来检查重合 |
+
+在列表里打开 **鼠语 MouseTalk** 的开关。如果没有它，点击 **＋**，添加“应用程序”里的 **MouseTalk.app**。回到鼠语查看状态；若仍未生效，退出后重新打开。
+
+### 2. 两边选同一个语音快捷键
+
+1. 点击 **选择并打开语音软件…**，找到你使用的语音输入软件。也可以自行打开，选软件不是必填项。
+2. 在那个软件的设置里找到“语音输入快捷键”。
+3. 回到鼠语，在第 2 步选择同样的按键，注意区分左键和右键。
+
+例如：**如果语音软件设为“右 Option”，鼠语也选“右 Option”，第二个键选“无”。** 如果设的是同时按两个键，鼠语也选同样的两个键。
+
+“打开软件”只负责启动它，不会自动进入它的快捷键设置页，也不会读取或修改它的设置。这里没有强制绑定某个品牌的输入法；只要软件能响应鼠语模拟的快捷键，就可以尝试使用。
+
+### 3. 绑定鼠标按钮
+
+点击相应动作旁的 **绑定**，再按一下想用的鼠标侧键或滚轮中键。无需知道按钮编号，左键和右键保留正常使用。
+
+| 动作 | 鼠标按钮会做什么 | 是否必填 |
+| --- | --- | --- |
+| 语音输入 | 按下第 2 步设置的快捷键 | 语音控制需要绑定 |
+| 回车发送 | 按一次 Return（回车） | 选填 |
+| 删除文字 | 按一下删一次，按住连续删除 | 选填 |
+
+只绑定一个语音按钮也能用。绑定后自动启用，设置自动保存；一个按钮只能做一件事，绑定后会替换它原来的前进／后退等动作。关闭 **启用鼠标控制** 即可恢复原来的动作。
+
+**发送按钮就是回车键。** 聊天软件需设为“回车发送”，否则可能只是换行。鼠语不会自动选择聊天窗口或输入框。
+
+### 4. 试说一句
+
+1. 打开聊天软件或备忘录，点一下输入框。
+2. 按已绑定的语音按钮，说一句话。
+3. 按语音软件自己的方式结束录音，确认文字出现。如果它支持“再按一次结束”，再按同一个鼠标按钮即可。
+4. 确认文字后，需要发送时再按已绑定的发送按钮。
+
+也可以点击 **3 秒后试用语音快捷键**，在倒计时内切回输入框。倒计时可以取消；这个测试只触发一次语音快捷键，不会按回车发送。
+
+设置完成后可以关闭窗口，鼠语仍在菜单栏运行。点击菜单栏里的鼠语图标，可以再次打开设置、暂停鼠标控制或退出。
+
+## 按了没反应？
+
+| 遇到的情况 | 先检查这里 |
+| --- | --- |
+| 键盘直接按也不能唤起语音 | 语音软件是否运行、快捷键是否正确，以及它自己的麦克风权限 |
+| 键盘能用，鼠标不行 | 鼠语的两项权限是否开启、按钮是否绑定、鼠标控制是否启用；两边的按键及左右侧是否一致 |
+| 两边设置一致，仍无法触发 | 展开“按了没反应？排查与高级设置”，尝试兼容模式；部分软件可能不接受模拟按键 |
+| 绑定时识别不到鼠标按钮 | 鼠语只识别标准鼠标按钮；检查 Logi Options+ 等驱动是否把它改成了手势或其他按键 |
+| 按发送却换行 | 在聊天软件中设置“回车发送” |
+| 文字进了别的地方 | 先选中你要输入文字的窗口和输入框，再说话 |
+| 更新应用后失效 | 重新检查系统权限；默认的临时签名在重新构建后可能需要重新授权 |
+
+## 快捷键重合检查
+
+绑定或更改快捷键后会自动检查，也可以点击 **重新检查**。如果读到了其他软件的快捷键，会显示软件、功能和来源。
+
+- 出现你要控制的语音软件，通常是正常的：鼠语本来就是要触发它。
+- 出现其他软件，请检查实际使用时是否会一起触发，再决定是否调整快捷键。
+- “未发现重合”只表示可检查范围内没有发现；部分软件的全局快捷键、双击操作和鼠标驱动设置无法读取。
+
+检查不会改动其他软件的设置，也不会触发它们的快捷键。详细范围可在界面中展开查看。
+
+## 开发与诊断
+
+```bash
+swift build
+swift test
+./build-app.sh
+.build/release/double-click-key-test send --dry-run
+```
+
+没有第三方运行时依赖。`./build-app.sh` 从 `Sources/MouseTalkKit/Brand.swift` 生成图标，默认使用临时签名，不搜索钥匙串。如需指定签名身份：
 
 ```bash
 SIGNING_IDENTITY="Developer ID Application: Example" ./build-app.sh
 ```
 
-Move the built app to `/Applications` if you want a stable path. A rebuild with
-ad-hoc signing can cause macOS to request permissions again.
+<details>
+<summary>快捷键检查的技术范围</summary>
 
-## Configure
+- 通过 `CopySymbolicHotKeys` 读取启用的系统快捷键。该 API 不提供功能名，因此显示键码并提示到系统设置核对。
+- 读取正在运行的应用通过辅助功能公开的、启用的菜单快捷键。
+- 读取全局与正在运行应用的 `NSUserKeyEquivalents` 菜单快捷键覆盖设置。
+- 识别 Karabiner 当前配置中的直接 `pointing_button` 映射；带设备、应用或变量条件的复杂规则只提示可能重合。
+- 单独修饰键监听、双击、未启动的软件、私有全局快捷键和厂商鼠标驱动绑定可能无法读取；Logi Options+ 等驱动只能提示检查范围不完整。
 
-1. In the target app, assign the action you want to control to one modifier key
-   or a two-modifier combination.
-2. Open 鼠语 MouseTalk and grant Input Monitoring and Accessibility.
-3. Bind an extra mouse button to **Shortcut**, **Return**, or **Backspace**.
-4. Set the app's output shortcut to exactly match the target app.
-5. Use **Test output** before enabling the mouse mapping.
+菜单快捷键是否生效取决于当前应用和焦点；部分来源不区分左右修饰键或点击次数。扫描有时间和节点数量限制，不是全系统快捷键注册表。结果只保存在内存中。
 
-The UI currently uses Simplified Chinese. Button numbers are displayed in both
-Core Graphics' zero-based form and the conventional one-based form.
+`mousetalk-check --scan` 是只读诊断，使用**示例绑定**（右 Option 对应按钮 4、Return 对应按钮 5、Backspace 对应按钮 3），不是当前 GUI 配置的导出；不会发送按键或请求权限。
 
-## Shortcut overlap checks
+</details>
 
-The check refreshes after button/output changes; **重新检查** repeats it after
-other apps' settings change. It runs off the UI thread after capturing the
-system hotkeys on the main thread, with a bounded menu scan. It checks:
+<details>
+<summary>事件实验、兼容性与历史版本</summary>
 
-- Enabled macOS symbolic hotkeys through `CopySymbolicHotKeys`. Apple does not
-  expose the function names through this API; these results show a keycode and
-  explicitly require verification in System Settings.
-- Running apps' accessible, enabled menu shortcuts and their app/function names.
-- `NSUserKeyEquivalents` overrides for global menus and running applications.
-- Direct `pointing_button` mappings from Karabiner's selected profile. Complex
-  rules can depend on devices, apps or variables and are reported as possible overlaps.
+鼠语监听 `otherMouseDown` / `otherMouseUp`，通过 Core Graphics 发送模拟按键，不生成真实硬件 HID 报告。已绑定按钮的按下事件会被拦截，抬起事件会放行，避免系统留下鼠标按下的状态。
 
-This is **not an exhaustive registry of every app's shortcuts**. Modifier-only
-listeners, double-tap gestures, closed apps, private global hotkeys, and vendor
-mouse-driver mappings may be unavailable. Logi Options+, BetterTouchTool and
-other detected drivers are listed as coverage gaps, never invented conflicts.
-Menu overlap is local to that app/focus, not necessarily a global conflict.
-Matching the intended voice-input application's shortcut is expected.
-
-No other app's settings are changed. Results are kept in memory only, with
-source/limitations visible in the UI. No match means no overlap was found in the
-readable subset, not guaranteed conflict-free operation. Left/right modifier
-identity and tap-count semantics may not be published by the source.
-
-`mousetalk-check --scan` is a read-only diagnostic with **sample** bindings
-(right Option on button 4, Return on button 5, Backspace on button 3), not an
-export of the GUI's current preferences. It never emits keyboard events or
-requests permissions. Build it with `swift build --product mousetalk-check`.
-
-The bundle identifier and executable name of the open-source version remain
-stable. On first launch, only known tool settings missing from the new defaults
-are imported from the earlier `com.tryailab.doubao-mouse` experiment; source
-preferences remain intact. Moving from that differently identified app may
-require fresh macOS privacy permissions. Run only one version at a time.
-
-Source repository: [TryAILab/mousetalk](https://github.com/TryAILab/mousetalk).
-The project retains the original Double Click Mouse commit history.
-
-## CLI event experiment
-
-The companion CLI helps determine which synthetic modifier-event shape a target
-app accepts:
+CLI 可比较单按、双击以及两种事件格式；双击实验仅在 CLI 中提供：
 
 ```bash
 swift build -c release --product double-click-key-test
@@ -127,37 +145,14 @@ swift build -c release --product double-click-key-test
 .build/release/double-click-key-test send --mode double --style flags-changed
 ```
 
-Run with `--help` to see timing, source, and key options. Without `--dry-run`,
-the CLI posts synthetic keyboard events and therefore requires Accessibility.
+不带 `--dry-run` 会实际发送按键，需要辅助功能权限。用 `--help` 查看参数。
 
-## Limitations
+仓库保留 Double Click Mouse 的原始提交历史、开源版 bundle identifier 和可执行文件名。首次启动仅迁移早期 `com.tryailab.doubao-mouse` 实验版中、本版本尚未设置的已知配置，不修改旧配置。迁移到不同 bundle identifier 的应用需要重新授权；同一时间只运行一个版本。
 
-- Only standard extra-button events are supported. Vendor-specific gesture
-  buttons may require an IOHID-based implementation.
-- The app does not create real hardware HID reports; it posts Core Graphics
-  synthetic events.
-- Mapped button-down events are suppressed. The corresponding button-up event
-  is allowed through so macOS does not retain a stuck mouse-button state.
-- There are no prebuilt, notarized releases yet.
+</details>
 
-## Development
+## 隐私与许可
 
-```bash
-swift build
-swift test
-swift build -c release
-.build/release/double-click-key-test send --dry-run
-```
+鼠语本身不联网、不收集分析数据、不录音，也不读取你输入的文字。语音软件如何处理录音取决于那个软件。更多说明见 [SECURITY.md](SECURITY.md)。
 
-The project has no third-party runtime dependencies.
-The app package is produced by `./build-app.sh`; the vector app icon is rendered
-from `Sources/MouseTalkKit/Brand.swift` during that build.
-
-## Security and privacy
-
-See [SECURITY.md](SECURITY.md) for the permission model and vulnerability
-reporting guidance.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+MIT 开源许可，见 [LICENSE](LICENSE)。源码：[TryAILab/mousetalk](https://github.com/TryAILab/mousetalk)。
