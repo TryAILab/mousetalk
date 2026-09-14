@@ -1,8 +1,9 @@
-// Double Click Mouse menu bar application.
+// 鼠语 MouseTalk menu bar application.
 import ApplicationServices
 import AppKit
 import CoreGraphics
 import SwiftUI
+import MouseTalkKit
 
 private enum OutputKey: String, CaseIterable, Identifiable {
     case fn
@@ -341,6 +342,13 @@ private final class AppController: ObservableObject {
     @Published var captureTarget: BindingTarget?
     @Published var monitorRunning = false
     @Published var status = "等待权限检查…"
+    @Published var conflictReport: ConflictReport?
+    @Published var checkingConflicts = false
+    @Published var bindingNotice = ""
+    private var conflictGeneration = UUID()
+    private var pendingConflictCheck: DispatchWorkItem?
+    private let conflictQueue = DispatchQueue(label: "mousetalk.conflicts", qos: .userInitiated)
+
 
     @Published var selectedButton: Int? {
         didSet {
@@ -350,6 +358,7 @@ private final class AppController: ObservableObject {
                 defaults.removeObject(forKey: "selectedButton")
             }
             refreshSuppressedButtons()
+            scheduleConflictCheck()
         }
     }
     @Published var returnButton: Int? {
@@ -360,6 +369,7 @@ private final class AppController: ObservableObject {
                 defaults.removeObject(forKey: "returnButton")
             }
             refreshSuppressedButtons()
+            scheduleConflictCheck()
         }
     }
     @Published var backspaceButton: Int? {
@@ -371,6 +381,7 @@ private final class AppController: ObservableObject {
                 defaults.removeObject(forKey: "backspaceButton")
             }
             refreshSuppressedButtons()
+            scheduleConflictCheck()
         }
     }
     @Published var isEnabled: Bool {
@@ -381,7 +392,7 @@ private final class AppController: ObservableObject {
         }
     }
     @Published var outputKey: OutputKey {
-        didSet { defaults.set(outputKey.rawValue, forKey: "outputKey") }
+        didSet { defaults.set(outputKey.rawValue, forKey: "outputKey"); scheduleConflictCheck() }
     }
     @Published var secondKeyRawValue: String {
         didSet {
@@ -390,6 +401,7 @@ private final class AppController: ObservableObject {
             } else {
                 defaults.set(secondKeyRawValue, forKey: "secondKey")
             }
+            scheduleConflictCheck()
         }
     }
     @Published var eventShape: EventShape {
@@ -406,6 +418,16 @@ private final class AppController: ObservableObject {
     private let debounceNanoseconds: UInt64 = 350_000_000
 
     init() {
+        // Import only this tool's settings from the original local experiment.
+        if !defaults.bool(forKey: "didImportMouseTalkSettings") {
+            let legacy = UserDefaults(suiteName: "com.tryailab.doubao-mouse")
+            for key in ["selectedButton", "returnButton", "backspaceButton", "isEnabled", "outputKey", "secondKey", "eventShape", "didMigrateToOneShotModifierEvents"] {
+                if defaults.object(forKey: key) == nil, let value = legacy?.object(forKey: key) {
+                    defaults.set(value, forKey: key)
+                }
+            }
+            defaults.set(true, forKey: "didImportMouseTalkSettings")
+        }
         if UserDefaults.standard.object(forKey: "selectedButton") != nil {
             selectedButton = UserDefaults.standard.integer(forKey: "selectedButton")
         } else {
@@ -470,6 +492,7 @@ private final class AppController: ObservableObject {
         guard !hasStarted else { return }
         hasStarted = true
         refreshPermissions()
+        scheduleConflictCheck()
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             self?.refreshPermissions()
         }
@@ -491,7 +514,7 @@ private final class AppController: ObservableObject {
         defaults.set(post, forKey: "diagnosticAXTrusted")
         defaults.set(Date().timeIntervalSince1970, forKey: "diagnosticLastCheck")
         if listen != canListen { canListen = listen }
-        if post != canPost { canPost = post }
+        if post != canPost { canPost = post; scheduleConflictCheck() }
 
         if listen {
             monitorRunning = monitor.start()
@@ -562,6 +585,9 @@ private final class AppController: ObservableObject {
 
     private func handleMouseButtonDown(_ button: Int) {
         if let target = captureTarget {
+            let previous: [(Int?, String)] = [(selectedButton, "语音快捷键"), (returnButton, "Return"), (backspaceButton, "退格")]
+            let replaced = previous.filter { $0.0 == button && $0.1 != target.title }.map { $0.1 }
+            bindingNotice = replaced.isEmpty ? "" : "这个按钮原来绑定了“\(replaced.joined(separator: "、"))”，已改为“\(target.title)”。"
             switch target {
             case .voice:
                 selectedButton = button
@@ -625,6 +651,38 @@ private final class AppController: ObservableObject {
         )
     }
 
+    func scheduleConflictCheck() {
+        conflictGeneration = UUID()
+        conflictReport = nil
+        checkingConflicts = true
+        pendingConflictCheck?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.checkConflicts() }
+        pendingConflictCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+    }
+
+    func checkConflicts() {
+        pendingConflictCheck?.cancel()
+        let generation = UUID()
+        conflictGeneration = generation
+        conflictReport = nil
+        checkingConflicts = true
+        let bindings = [
+            BindingSelection(action: "语音快捷键", keys: configuredKeys.map { Int($0.keyCode) }, mouseButton: selectedButton),
+            BindingSelection(action: "确认发送", keys: [36], mouseButton: returnButton),
+            BindingSelection(action: "删除文字", keys: [51], mouseButton: backspaceButton),
+        ]
+        let context = ConflictScanner.context()
+        conflictQueue.async { [weak self] in
+            let report = ConflictScanner.scan(bindings, context: context)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.conflictGeneration == generation else { return }
+                self.conflictReport = report
+                self.checkingConflicts = false
+            }
+        }
+    }
+
     var configuredKeys: [OutputKey] {
         let secondKey = OutputKey.load(rawValue: secondKeyRawValue)
         if let secondKey, secondKey != outputKey {
@@ -666,9 +724,17 @@ private struct ContentView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Double Click Mouse")
-                    .font(.largeTitle.bold())
-                Text("用额外鼠标按钮触发语音快捷键、Return 和可长按的退格")
+                HStack(spacing: 16) {
+                    Image(nsImage: MouseTalkBrand.image())
+                        .resizable().frame(width: 76, height: 76)
+                        .accessibilityLabel("鼠语标志：鼠标形状的老鼠头像")
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("鼠语").font(.largeTitle.bold())
+                        Text("MouseTalk").font(.title3).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                Text("随口说，随手发。用鼠标触发语音输入、发送和退格。")
                     .foregroundStyle(.secondary)
 
                 GroupBox("1. 权限") {
@@ -679,7 +745,7 @@ private struct ContentView: View {
                             openSettings: controller.openInputMonitoringSettings
                         )
                         PermissionRow(
-                            name: "Accessibility（发送按键）",
+                            name: "Accessibility（发送按键、检查菜单）",
                             granted: controller.canPost,
                             openSettings: controller.openAccessibilitySettings
                         )
@@ -730,6 +796,9 @@ private struct ContentView: View {
                             Button("绑定") { controller.beginCapture(.backspace) }
                             Button("清除") { controller.clearBinding(.backspace) }
                                 .disabled(controller.backspaceButton == nil)
+                        }
+                        if !controller.bindingNotice.isEmpty {
+                            Text(controller.bindingNotice).font(.callout).foregroundStyle(.orange)
                         }
                         if let target = controller.captureTarget {
                             HStack {
@@ -793,6 +862,8 @@ private struct ContentView: View {
                     .padding(.top, 6)
                 }
 
+                ConflictCheckView(controller: controller)
+
                 HStack {
                     Button("直接测试输出", action: controller.testOutput)
                         .keyboardShortcut(.defaultAction)
@@ -828,85 +899,52 @@ private struct MenuContent: View {
     }
 }
 
-private enum MenuBarMouseIcon {
-    static let image: NSImage = {
-        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
-            NSGraphicsContext.current?.shouldAntialias = true
-            NSColor.black.setStroke()
-            NSColor.black.setFill()
+private struct ConflictCheckView: View {
+    @ObservedObject var controller: AppController
 
-            let ears = NSBezierPath()
-            ears.lineWidth = 1.3
-            ears.appendOval(in: NSRect(x: 1.6, y: 10.1, width: 5.8, height: 5.8))
-            ears.appendOval(in: NSRect(x: 10.6, y: 10.1, width: 5.8, height: 5.8))
-            ears.stroke()
-
-            let face = NSBezierPath()
-            face.lineWidth = 1.35
-            face.lineCapStyle = .round
-            face.lineJoinStyle = .round
-            face.move(to: NSPoint(x: 5.5, y: 12.6))
-            face.curve(
-                to: NSPoint(x: 12.5, y: 12.6),
-                controlPoint1: NSPoint(x: 7.0, y: 14.1),
-                controlPoint2: NSPoint(x: 11.0, y: 14.1)
-            )
-            face.curve(
-                to: NSPoint(x: 13.8, y: 8.4),
-                controlPoint1: NSPoint(x: 13.4, y: 11.5),
-                controlPoint2: NSPoint(x: 14.1, y: 10.0)
-            )
-            face.curve(
-                to: NSPoint(x: 11.7, y: 4.4),
-                controlPoint1: NSPoint(x: 13.6, y: 6.6),
-                controlPoint2: NSPoint(x: 12.8, y: 5.3)
-            )
-            face.curve(
-                to: NSPoint(x: 9.0, y: 3.2),
-                controlPoint1: NSPoint(x: 10.9, y: 3.7),
-                controlPoint2: NSPoint(x: 9.9, y: 3.2)
-            )
-            face.curve(
-                to: NSPoint(x: 6.3, y: 4.4),
-                controlPoint1: NSPoint(x: 8.1, y: 3.2),
-                controlPoint2: NSPoint(x: 7.1, y: 3.7)
-            )
-            face.curve(
-                to: NSPoint(x: 4.2, y: 8.4),
-                controlPoint1: NSPoint(x: 5.2, y: 5.3),
-                controlPoint2: NSPoint(x: 4.4, y: 6.6)
-            )
-            face.curve(
-                to: NSPoint(x: 5.5, y: 12.6),
-                controlPoint1: NSPoint(x: 3.9, y: 10.0),
-                controlPoint2: NSPoint(x: 4.6, y: 11.5)
-            )
-            face.close()
-            face.stroke()
-
-            NSBezierPath(ovalIn: NSRect(x: 6.6, y: 8.1, width: 1.15, height: 1.45)).fill()
-            NSBezierPath(ovalIn: NSRect(x: 10.25, y: 8.1, width: 1.15, height: 1.45)).fill()
-            NSBezierPath(ovalIn: NSRect(x: 8.0, y: 5.2, width: 2.0, height: 1.45)).fill()
-
-            let whiskers = NSBezierPath()
-            whiskers.lineWidth = 0.75
-            whiskers.lineCapStyle = .round
-            whiskers.move(to: NSPoint(x: 6.9, y: 6.5))
-            whiskers.line(to: NSPoint(x: 0.9, y: 7.4))
-            whiskers.move(to: NSPoint(x: 6.8, y: 5.8))
-            whiskers.line(to: NSPoint(x: 1.0, y: 5.1))
-            whiskers.move(to: NSPoint(x: 11.1, y: 6.5))
-            whiskers.line(to: NSPoint(x: 17.1, y: 7.4))
-            whiskers.move(to: NSPoint(x: 11.2, y: 5.8))
-            whiskers.line(to: NSPoint(x: 17.0, y: 5.1))
-            whiskers.stroke()
-
-            return true
+    var body: some View {
+        GroupBox("5. 快捷键冲突检查") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    if controller.checkingConflicts {
+                        ProgressView().controlSize(.small)
+                        Text("正在检查系统与应用公开的快捷键…").font(.callout)
+                    } else if controller.selectedButton == nil && controller.returnButton == nil && controller.backspaceButton == nil {
+                        Text("请先绑定鼠标按钮")
+                    } else {
+                        Text(controller.conflictReport?.findings.isEmpty == false ? "发现可能重合的绑定" : "已检查范围内未发现重合")
+                            .fontWeight(.medium)
+                    }
+                    Spacer()
+                    Button("重新检查", action: controller.checkConflicts)
+                        .disabled(controller.checkingConflicts)
+                }
+                Text("与目标语音软件使用相同快捷键是预期行为；下列记录需结合实际用途判断，不会自动改动其他软件。")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let report = controller.conflictReport {
+                    ForEach(report.findings) { item in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("\(item.action) · \(item.app)", systemImage: "exclamationmark.triangle")
+                                .foregroundStyle(.orange).fontWeight(.medium)
+                            Text(item.function).textSelection(.enabled)
+                            Text("\(item.source) · \(item.explanation)").font(.caption).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Divider()
+                    }
+                    DisclosureGroup("检查范围与限制") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(report.coverage, id: \.self) { Text($0).font(.caption) }
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 6)
+                    }
+                    Text("单按／双击修饰键和鼠标驱动的内部绑定可能无法读取，未发现重合不代表没有冲突。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("检查于 \(report.checkedAt.formatted(date: .omitted, time: .standard))")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 6)
         }
-        image.size = NSSize(width: 16, height: 16)
-        image.isTemplate = true
-        return image
-    }()
+    }
 }
 
 @main
@@ -914,7 +952,7 @@ private struct DoubleClickMouseApp: App {
     @StateObject private var controller = AppController()
 
     var body: some Scene {
-        WindowGroup("Double Click Mouse", id: "settings") {
+        WindowGroup("鼠语 MouseTalk", id: "settings") {
             ContentView()
                 .environmentObject(controller)
         }
@@ -924,8 +962,8 @@ private struct DoubleClickMouseApp: App {
             MenuContent()
                 .environmentObject(controller)
         } label: {
-            Image(nsImage: MenuBarMouseIcon.image)
-                .accessibilityLabel("Double Click Mouse")
+            Image(nsImage: MouseTalkBrand.image(size: 18, template: true))
+                .accessibilityLabel("鼠语 MouseTalk")
         }
     }
 }
