@@ -18,7 +18,11 @@
 
 ## 安装
 
-目前还没有可直接下载的预编译、公证安装包，需要从源码构建。构建需要 Swift 6（Xcode 16 或兼容的命令行工具）。
+可在 [鼠语下载页](https://www.tryailab.com/projects/mousetalk) 下载 **MouseTalk 0.5.3 通用 Mac 安装包**（Apple Silicon / Intel，macOS 13+）。解压后把 MouseTalk.app 拖入“应用程序”，再打开并按界面提示授予权限。
+
+当前下载包使用临时签名，**尚未经过 Apple 公证**。macOS 可能阻止首次打开；确认下载来源后，按 [Apple 官方说明](https://support.apple.com/zh-cn/102445) 在“系统设置 → 隐私与安全性”中处理。无需关闭系统安全保护。更新后可能需要重新授权。
+
+从源码构建需要 Swift 6（Xcode 16 或兼容的命令行工具）。发布包可复现：`./package-release.sh`。
 
 ```bash
 git clone https://github.com/TryAILab/mousetalk.git
@@ -130,6 +134,6 @@ swift build -c release --product double-click-key-test
 
 ## 隐私与许可
 
-鼠语本身不联网、不收集分析数据、不录音，也不读取你输入的文字。语音软件如何处理录音取决于那个软件。更多说明见 [SECURITY.md](SECURITY.md)。
+鼠语的按键功能不联网、不收集分析数据、不录音，也不读取你输入的文字。设置页和菜单栏的 GitHub／提供反馈按钮只在点击时打开外部浏览器，不自动发送配置或诊断信息。语音软件如何处理录音取决于那个软件。更多说明见 [SECURITY.md](SECURITY.md)。
 
 MIT 开源许可，见 [LICENSE](LICENSE)。源码：[TryAILab/mousetalk](https://github.com/TryAILab/mousetalk)。

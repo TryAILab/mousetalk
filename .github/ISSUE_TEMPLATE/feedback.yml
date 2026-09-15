@@ -1,0 +1,19 @@
+name: 问题或建议
+description: 告诉我 MouseTalk 哪里可以改进
+title: "[反馈] "
+body:
+  - type: markdown
+    attributes:
+      value: "感谢试用鼠语。这里是公开反馈，请不要提交私人输入内容或密钥。"
+  - type: textarea
+    id: description
+    attributes:
+      label: 遇到了什么，或希望增加什么？
+      description: 如果是问题，请描述操作步骤、预期和实际表现。
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 使用环境（可选）
+      placeholder: "MouseTalk 版本、macOS 版本、鼠标型号、语音软件"

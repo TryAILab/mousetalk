@@ -14,11 +14,16 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$project_dir"
-swift build -c release --product DoubleClickMouse
+build_arch_args=()
+if [[ "${UNIVERSAL:-0}" == "1" ]]; then
+  build_arch_args=(--arch arm64 --arch x86_64)
+fi
+swift build -c release "${build_arch_args[@]}" --product DoubleClickMouse
+app_bin_dir="$(swift build -c release "${build_arch_args[@]}" --show-bin-path)"
 swift build -c release --product mousetalk-check
 
 mkdir -p "$staging_app/Contents/MacOS"
-cp "$project_dir/.build/release/DoubleClickMouse" "$staging_app/Contents/MacOS/DoubleClickMouse"
+cp "$app_bin_dir/DoubleClickMouse" "$staging_app/Contents/MacOS/DoubleClickMouse"
 cp "$project_dir/AppBundle/Info.plist" "$staging_app/Contents/Info.plist"
 mkdir -p "$staging_app/Contents/Resources"
 "$project_dir/.build/release/mousetalk-check" --export-assets "$staging_root/brand"

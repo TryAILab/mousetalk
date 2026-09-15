@@ -5,6 +5,11 @@ import CoreGraphics
 import SwiftUI
 import MouseTalkKit
 
+private enum ProjectLinks {
+    static let github = URL(string: "https://github.com/TryAILab/mousetalk")!
+    static let feedback = URL(string: "https://github.com/TryAILab/mousetalk/issues/new/choose")!
+}
+
 private enum OutputKey: String, CaseIterable, Identifiable {
     case fn
     case leftControl
@@ -941,6 +946,16 @@ private struct ContentView: View {
                         HelpButton(title: "按了没反应？", text: "先用键盘确认豆包的快捷键能用，再检查鼠语权限、绑定和启用开关。键盘能用而鼠标无效时，可以尝试兼容模式。\n\n识别不到侧键时，检查鼠标驱动是否已将它改为手势或其他按键。")
                     }.padding(.top, 6)
                 }.font(.callout)
+                Divider()
+                HStack(spacing: 18) {
+                    Link("GitHub 源码 ↗", destination: ProjectLinks.github)
+                    Link("提供反馈 ↗", destination: ProjectLinks.feedback)
+                    Spacer()
+                    Text("v" + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""))
+                        .foregroundStyle(.secondary)
+                }.font(.caption)
+                Text("反馈会在浏览器中打开 GitHub；不会自动发送设置或诊断信息。")
+                    .font(.caption2).foregroundStyle(.secondary)
             }.padding(18)
         }
         .frame(minWidth: 480, minHeight: 500)
@@ -978,6 +993,9 @@ private struct MenuContent: View {
         }
         Divider()
         Toggle("启用鼠标控制", isOn: $controller.isEnabled)
+        Divider()
+        Link("GitHub 源码", destination: ProjectLinks.github)
+        Link("提供反馈", destination: ProjectLinks.feedback)
         Divider()
         Button("退出") { NSApp.terminate(nil) }
     }
