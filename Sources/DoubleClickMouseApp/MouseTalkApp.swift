@@ -82,12 +82,32 @@ private enum BindingTarget {
     case voice
     case confirm
     case backspace
+    case copy
+    case paste
 
     var title: String {
         switch self {
         case .voice: "语音快捷键"
         case .confirm: "回车发送"
         case .backspace: "退格"
+        case .copy: "复制"
+        case .paste: "粘贴"
+        }
+    }
+}
+
+private enum DoubleRightAction: String, CaseIterable, Identifiable {
+    case none
+    case copy
+    case paste
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .none: "关闭"
+        case .copy: "复制（⌘C）"
+        case .paste: "粘贴（⌘V）"
         }
     }
 }
@@ -128,15 +148,27 @@ private final class ShortcutEmitter {
     }
 
     func emitReturn() {
+        emitKey(36)
+    }
+
+    func emitCopy() {
+        emitKey(8, flags: .maskCommand)
+    }
+
+    func emitPaste() {
+        emitKey(9, flags: .maskCommand)
+    }
+
+    private func emitKey(_ keyCode: CGKeyCode, flags: CGEventFlags? = nil) {
         queue.async {
             let source = CGEventSource(stateID: .hidSystemState)
             guard
-                let down = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: true),
-                let up = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: false)
+                let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+                let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
             else { return }
-            let flags = CGEventSource.flagsState(.combinedSessionState)
-            down.flags = flags
-            up.flags = flags
+            let outputFlags = flags ?? CGEventSource.flagsState(.combinedSessionState)
+            down.flags = outputFlags
+            up.flags = outputFlags
             down.post(tap: .cghidEventTap)
             usleep(50_000)
             up.post(tap: .cghidEventTap)
@@ -239,8 +271,14 @@ private let mouseEventCallback: CGEventTapCallBack = { _, type, event, userInfo 
     guard let userInfo else { return Unmanaged.passUnretained(event) }
     let monitor = Unmanaged<MouseMonitor>.fromOpaque(userInfo).takeUnretainedValue()
 
+    if event.getIntegerValueField(.eventSourceUserData) == MouseMonitor.replayedEventMarker {
+        return Unmanaged.passUnretained(event)
+    }
+
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
         monitor.reenable()
+    } else if type == .rightMouseDown || type == .rightMouseUp {
+        if monitor.handleRightMouseEvent(type: type, event: event) { return nil }
     } else if type == .otherMouseDown || type == .otherMouseUp {
         let button = Int(event.getIntegerValueField(.mouseEventButtonNumber))
         let shouldSuppress = monitor.shouldSuppress(button: button)
@@ -264,10 +302,18 @@ private let mouseEventCallback: CGEventTapCallBack = { _, type, event, userInfo 
 }
 
 private final class MouseMonitor {
+    static let replayedEventMarker: Int64 = 0x4D54524C
+
     var onButtonDown: ((Int) -> Void)?
     var onButtonUp: ((Int) -> Void)?
+    var onRightDoubleClick: (() -> Void)?
     var onCancelled: (() -> Void)?
     private var suppressedButtons: Set<Int> = []
+    private var rightDoubleClickEnabled = false
+    private var pendingRightDown: CGEvent?
+    private var pendingRightUp: CGEvent?
+    private var rightClickTimer: Timer?
+    private var suppressNextRightUp = false
 
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -281,6 +327,8 @@ private final class MouseMonitor {
 
         let mask = (CGEventMask(1) << CGEventType.otherMouseDown.rawValue)
             | (CGEventMask(1) << CGEventType.otherMouseUp.rawValue)
+            | (CGEventMask(1) << CGEventType.rightMouseDown.rawValue)
+            | (CGEventMask(1) << CGEventType.rightMouseUp.rawValue)
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
         guard let newTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -304,6 +352,7 @@ private final class MouseMonitor {
     }
 
     func stop() {
+        replayPendingRightClick()
         if let source = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
         }
@@ -335,6 +384,65 @@ private final class MouseMonitor {
 
     func setSuppressedButtons(_ buttons: Set<Int>) {
         suppressedButtons = buttons
+    }
+
+    func setRightDoubleClickEnabled(_ enabled: Bool) {
+        guard enabled != rightDoubleClickEnabled else { return }
+        if !enabled { replayPendingRightClick() }
+        rightDoubleClickEnabled = enabled
+    }
+
+    /// Returns true when the physical event must be held or suppressed.
+    func handleRightMouseEvent(type: CGEventType, event: CGEvent) -> Bool {
+        guard rightDoubleClickEnabled else { return false }
+
+        if type == .rightMouseDown {
+            if pendingRightDown != nil {
+                rightClickTimer?.invalidate()
+                rightClickTimer = nil
+                pendingRightDown = nil
+                pendingRightUp = nil
+                suppressNextRightUp = true
+                DispatchQueue.main.async { [weak self] in self?.onRightDoubleClick?() }
+                return true
+            }
+
+            pendingRightDown = event.copy()
+            pendingRightUp = nil
+            let timer = Timer(timeInterval: NSEvent.doubleClickInterval, repeats: false) { [weak self] _ in
+                self?.replayPendingRightClick()
+            }
+            rightClickTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+            return true
+        }
+
+        if suppressNextRightUp {
+            suppressNextRightUp = false
+            return true
+        }
+        if pendingRightDown != nil {
+            pendingRightUp = event.copy()
+            return true
+        }
+        return false
+    }
+
+    private func replayPendingRightClick() {
+        rightClickTimer?.invalidate()
+        rightClickTimer = nil
+        guard let down = pendingRightDown else { return }
+        let up = pendingRightUp
+        pendingRightDown = nil
+        pendingRightUp = nil
+        down.setIntegerValueField(.eventSourceUserData, value: Self.replayedEventMarker)
+        down.setIntegerValueField(.mouseEventClickState, value: 1)
+        down.post(tap: .cghidEventTap)
+        if let up {
+            up.setIntegerValueField(.eventSourceUserData, value: Self.replayedEventMarker)
+            up.setIntegerValueField(.mouseEventClickState, value: 1)
+            up.post(tap: .cghidEventTap)
+        }
     }
 
     func shouldSuppress(button: Int) -> Bool {
@@ -394,11 +502,34 @@ private final class AppController: ObservableObject {
             scheduleConflictCheck()
         }
     }
+    @Published var copyButton: Int? {
+        didSet {
+            if let copyButton {
+                defaults.set(copyButton, forKey: "copyButton")
+            } else {
+                defaults.removeObject(forKey: "copyButton")
+            }
+            refreshSuppressedButtons()
+            scheduleConflictCheck()
+        }
+    }
+    @Published var pasteButton: Int? {
+        didSet {
+            if let pasteButton {
+                defaults.set(pasteButton, forKey: "pasteButton")
+            } else {
+                defaults.removeObject(forKey: "pasteButton")
+            }
+            refreshSuppressedButtons()
+            scheduleConflictCheck()
+        }
+    }
     @Published var isEnabled: Bool {
         didSet {
             if !isEnabled { emitter.endBackspace() }
             defaults.set(isEnabled, forKey: "isEnabled")
             refreshSuppressedButtons()
+            refreshRightDoubleClick()
         }
     }
     @Published var outputKey: OutputKey {
@@ -420,6 +551,12 @@ private final class AppController: ObservableObject {
     }
     @Published var eventShape: EventShape {
         didSet { defaults.set(eventShape.rawValue, forKey: "eventShape") }
+    }
+    @Published var doubleRightAction: DoubleRightAction {
+        didSet {
+            defaults.set(doubleRightAction.rawValue, forKey: "doubleRightAction")
+            refreshRightDoubleClick()
+        }
     }
 
     private let defaults = UserDefaults.standard
@@ -458,6 +595,16 @@ private final class AppController: ObservableObject {
         } else {
             backspaceButton = nil
         }
+        if UserDefaults.standard.object(forKey: "copyButton") != nil {
+            copyButton = UserDefaults.standard.integer(forKey: "copyButton")
+        } else {
+            copyButton = nil
+        }
+        if UserDefaults.standard.object(forKey: "pasteButton") != nil {
+            pasteButton = UserDefaults.standard.integer(forKey: "pasteButton")
+        } else {
+            pasteButton = nil
+        }
         captureTarget = nil
         isEnabled = UserDefaults.standard.object(forKey: "isEnabled") as? Bool ?? true
         outputKey = OutputKey.load(rawValue: UserDefaults.standard.string(forKey: "outputKey")) ?? .leftControl
@@ -474,6 +621,9 @@ private final class AppController: ObservableObject {
             UserDefaults.standard.set("keyboard", forKey: "eventShape")
             UserDefaults.standard.set(true, forKey: "didMigrateToOneShotModifierEvents")
         }
+        doubleRightAction = DoubleRightAction(
+            rawValue: UserDefaults.standard.string(forKey: "doubleRightAction") ?? ""
+        ) ?? .none
 
         if secondKeyRawValue == outputKey.rawValue { secondKeyRawValue = "" }
 
@@ -482,6 +632,9 @@ private final class AppController: ObservableObject {
         }
         monitor.onButtonUp = { [weak self] button in
             self?.handleMouseButtonUp(button)
+        }
+        monitor.onRightDoubleClick = { [weak self] in
+            self?.handleRightDoubleClick()
         }
         monitor.onCancelled = { [weak self] in
             self?.emitter.endBackspace()
@@ -497,6 +650,7 @@ private final class AppController: ObservableObject {
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.refreshPermissions() }
         refreshSuppressedButtons()
+        refreshRightDoubleClick()
     }
 
     deinit {
@@ -634,6 +788,8 @@ private final class AppController: ObservableObject {
         case .voice: selectedButton = nil
         case .confirm: returnButton = nil
         case .backspace: backspaceButton = nil
+        case .copy: copyButton = nil
+        case .paste: pasteButton = nil
         }
         if captureTarget == target { captureTarget = nil }
         status = "已清除“\(target.title)”绑定。"
@@ -695,22 +851,31 @@ private final class AppController: ObservableObject {
 
     private func handleMouseButtonDown(_ button: Int) {
         if let target = captureTarget {
-            let previous: [(Int?, String)] = [(selectedButton, "语音快捷键"), (returnButton, "回车发送"), (backspaceButton, "退格")]
+            let previous: [(Int?, String)] = [
+                (selectedButton, "语音快捷键"),
+                (returnButton, "回车发送"),
+                (backspaceButton, "退格"),
+                (copyButton, "复制"),
+                (pasteButton, "粘贴"),
+            ]
             let replaced = previous.filter { $0.0 == button && $0.1 != target.title }.map { $0.1 }
             bindingNotice = replaced.isEmpty ? "" : "这个按钮原来绑定了“\(replaced.joined(separator: "、"))”，已改为“\(target.title)”。"
+            if selectedButton == button { selectedButton = nil }
+            if returnButton == button { returnButton = nil }
+            if backspaceButton == button { backspaceButton = nil }
+            if copyButton == button { copyButton = nil }
+            if pasteButton == button { pasteButton = nil }
             switch target {
             case .voice:
                 selectedButton = button
-                if returnButton == button { returnButton = nil }
-                if backspaceButton == button { backspaceButton = nil }
             case .confirm:
                 returnButton = button
-                if selectedButton == button { selectedButton = nil }
-                if backspaceButton == button { backspaceButton = nil }
             case .backspace:
                 backspaceButton = button
-                if selectedButton == button { selectedButton = nil }
-                if returnButton == button { returnButton = nil }
+            case .copy:
+                copyButton = button
+            case .paste:
+                pasteButton = button
             }
             captureTarget = nil
             isEnabled = true
@@ -726,7 +891,7 @@ private final class AppController: ObservableObject {
             return
         }
 
-        guard selectedButton == button || returnButton == button else { return }
+        guard selectedButton == button || returnButton == button || copyButton == button || pasteButton == button else { return }
         let now = DispatchTime.now()
         let previous = lastAcceptedMouseDown[button] ?? DispatchTime(uptimeNanoseconds: 0)
         let elapsed = now.uptimeNanoseconds &- previous.uptimeNanoseconds
@@ -739,9 +904,29 @@ private final class AppController: ObservableObject {
         if selectedButton == button {
             emitter.emit(keys: configuredKeys, shape: eventShape)
             status = "鼠标按钮 \(button + 1) → \(shortcutTitle)"
-        } else {
+        } else if returnButton == button {
             emitter.emitReturn()
             status = "鼠标按钮 \(button + 1) → 回车"
+        } else if copyButton == button {
+            emitter.emitCopy()
+            status = "鼠标按钮 \(button + 1) → 复制（⌘C）"
+        } else if pasteButton == button {
+            emitter.emitPaste()
+            status = "鼠标按钮 \(button + 1) → 粘贴（⌘V）"
+        }
+    }
+
+    private func handleRightDoubleClick() {
+        guard isEnabled, canPost else { return }
+        switch doubleRightAction {
+        case .none:
+            return
+        case .copy:
+            emitter.emitCopy()
+            status = "双击右键 → 复制（⌘C）"
+        case .paste:
+            emitter.emitPaste()
+            status = "双击右键 → 粘贴（⌘V）"
         }
     }
 
@@ -757,8 +942,12 @@ private final class AppController: ObservableObject {
             return
         }
         monitor.setSuppressedButtons(
-            Set([selectedButton, returnButton, backspaceButton].compactMap { $0 })
+            Set([selectedButton, returnButton, backspaceButton, copyButton, pasteButton].compactMap { $0 })
         )
+    }
+
+    private func refreshRightDoubleClick() {
+        monitor.setRightDoubleClickEnabled(isEnabled && doubleRightAction != .none)
     }
 
     func scheduleConflictCheck() {
@@ -916,6 +1105,8 @@ private struct ContentView: View {
                         bindingRow("语音", button: controller.selectedButton, target: .voice, help: "点击绑定，再按一个鼠标侧键或滚轮中键。它会触发上方的语音快捷键。若输入法支持再按一次结束录音，同一个鼠标键也能结束录音。")
                         bindingRow("发送", button: controller.returnButton, target: .confirm, help: "可选。相当于按回车，聊天软件需设为“回车发送”，否则可能换行。鼠语不会自动选择输入框。")
                         bindingRow("删除", button: controller.backspaceButton, target: .backspace, help: "可选。按一下删除一次，按住连续删除。一个鼠标按钮只能绑定一个动作。")
+                        bindingRow("复制", button: controller.copyButton, target: .copy, help: "可选。相当于 macOS 的 ⌘C，复制当前选中的内容。")
+                        bindingRow("粘贴", button: controller.pasteButton, target: .paste, help: "可选。相当于 macOS 的 ⌘V，把剪贴板内容粘贴到当前输入位置。")
                         if let target = controller.captureTarget {
                             HStack {
                                 Text("按一个鼠标按钮，用于\(target.title)…").foregroundStyle(.orange)
@@ -947,11 +1138,19 @@ private struct ContentView: View {
                     Text(controller.status).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 DisclosureGroup("高级") {
-                    HStack {
-                        Picker("兼容模式", selection: $controller.eventShape) {
-                            ForEach(EventShape.allCases) { Text($0.title).tag($0) }
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Picker("兼容模式", selection: $controller.eventShape) {
+                                ForEach(EventShape.allCases) { Text($0.title).tag($0) }
+                            }
+                            HelpButton(title: "按了没反应？", text: "先用键盘确认豆包的快捷键能用，再检查鼠语权限、绑定和启用开关。键盘能用而鼠标无效时，可以尝试兼容模式。\n\n滚轮中键通常可以绑定。PPI／DPI 键有时由鼠标硬件或驱动直接处理，如果点击“绑定”后按它没有反应，鼠语就无法读取这个键。")
                         }
-                        HelpButton(title: "按了没反应？", text: "先用键盘确认豆包的快捷键能用，再检查鼠语权限、绑定和启用开关。键盘能用而鼠标无效时，可以尝试兼容模式。\n\n识别不到侧键时，检查鼠标驱动是否已将它改为手势或其他按键。")
+                        HStack {
+                            Picker("双击右键", selection: $controller.doubleRightAction) {
+                                ForEach(DoubleRightAction.allCases) { Text($0.title).tag($0) }
+                            }
+                            HelpButton(title: "双击右键", text: "可选。单击右键仍打开正常菜单，双击右键执行复制或粘贴。\n\n为了判断是否双击，开启后单击右键会延迟一个系统双击间隔。若感觉右键反应变慢，请关闭此项。")
+                        }
                     }.padding(.top, 6)
                 }.font(.callout)
                 Divider()
@@ -1019,7 +1218,7 @@ private struct ConflictCheckView: View {
                     if controller.checkingConflicts {
                         ProgressView().controlSize(.small)
                         Text("正在检查系统与应用公开的快捷键…").font(.callout)
-                    } else if controller.selectedButton == nil && controller.returnButton == nil && controller.backspaceButton == nil {
+                    } else if controller.selectedButton == nil && controller.returnButton == nil && controller.backspaceButton == nil && controller.copyButton == nil && controller.pasteButton == nil {
                         Text("请先绑定鼠标按钮")
                     } else if controller.conflictReport == nil {
                         Text("尚未检查，点击“重新检查”开始")

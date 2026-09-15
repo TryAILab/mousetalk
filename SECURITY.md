@@ -7,7 +7,8 @@ Those permissions allow an application to observe input events and synthesize
 keyboard events. This project deliberately limits its behavior to:
 
 - receiving standard extra mouse-button down/up events;
-- emitting the user-configured modifier shortcut, Return, or Backspace; and
+- emitting the user-configured modifier shortcut, Return, Backspace, Command-C,
+  or Command-V; and
 - storing button and shortcut preferences in macOS `UserDefaults`;
 - reading enabled system shortcut metadata and public menu shortcuts from running
   apps through Accessibility, without activating menus or commands; and
@@ -17,6 +18,9 @@ keyboard events. This project deliberately limits its behavior to:
 
 It does not contain networking code, analytics, automatic updates, or audio
 recording. It does not inspect text typed in other applications.
+When the optional double-right-click action is enabled, the first right-click
+event is held only for the macOS double-click interval, then replayed unchanged
+if no second click arrives. Click content and coordinates are not stored.
 The scan can read menu labels (including app-provided document names) while
 traversing public menus, but only matching shortcut descriptions are retained
 in memory. It does not read text fields, window contents or clipboard contents.
