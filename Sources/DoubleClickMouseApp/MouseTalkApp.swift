@@ -890,16 +890,24 @@ private struct ContentView: View {
                 }
 
                 GroupBox("语音快捷键") {
-                    HStack {
-                        Picker("语音快捷键", selection: $controller.outputKey) {
-                            ForEach(OutputKey.allCases) { Text($0.title).tag($0) }
-                        }.labelsHidden()
-                        Text("+").foregroundStyle(.secondary)
-                        Picker("第二个键", selection: $controller.secondKeyRawValue) {
-                            Text("无").tag("")
-                            ForEach(OutputKey.allCases.filter { $0 != controller.outputKey }) { Text($0.title).tag($0.rawValue) }
-                        }.labelsHidden()
-                        HelpButton(title: "语音快捷键", text: "选成和豆包输入法中一样的快捷键即可。例如豆包设为“右 Option”，这里也选“右 Option”，第二个键选“无”。\n\n支持单按 Fn、Control、Option、Command 或其中两个键同时按；暂不支持双击、长按说话，以及带字母或空格的组合。")
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack {
+                            Picker("语音快捷键", selection: $controller.outputKey) {
+                                ForEach(OutputKey.allCases) { Text($0.title).tag($0) }
+                            }.labelsHidden()
+                            Text("+").foregroundStyle(.secondary)
+                            Picker("第二个键", selection: $controller.secondKeyRawValue) {
+                                Text("无").tag("")
+                                ForEach(OutputKey.allCases.filter { $0 != controller.outputKey }) { Text($0.title).tag($0.rawValue) }
+                            }.labelsHidden()
+                            HelpButton(title: "语音快捷键", text: "选成和豆包输入法中一样的快捷键即可。例如豆包设为“右 Option”，这里也选“右 Option”，第二个键选“无”。\n\n支持单按 Fn、Control、Option、Command 或其中两个键同时按；暂不支持双击、长按说话，以及带字母或空格的组合。")
+                        }
+                        Link(
+                            "没有语音输入法？下载豆包输入法",
+                            destination: URL(string: "https://ime.doubao.com/pc")!
+                        )
+                        .font(.caption)
+                        .help("打开豆包输入法官方下载页")
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
                 }
 
