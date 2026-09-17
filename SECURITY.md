@@ -2,7 +2,7 @@
 
 ## Permission model
 
-鼠语 MouseTalk requests macOS Input Monitoring and Accessibility access.
+妙语 MouseTalk requests macOS Input Monitoring and Accessibility access.
 Those permissions allow an application to observe input events and synthesize
 keyboard events. This project deliberately limits its behavior to:
 

@@ -1,4 +1,4 @@
-// 鼠语 MouseTalk menu bar application.
+// 妙语 MouseTalk menu bar application.
 import ApplicationServices
 import AppKit
 import CoreGraphics
@@ -722,7 +722,7 @@ private final class AppController: ObservableObject {
                 if app != nil, error == nil { NSApp.terminate(nil) }
                 else {
                     self?.isRestarting = false
-                    self?.status = "重新打开失败，请退出后手动打开鼠语。"
+                    self?.status = "重新打开失败，请退出后手动打开妙语。"
                     self?.refreshPermissions()
                 }
             }
@@ -752,11 +752,11 @@ private final class AppController: ObservableObject {
                 self.repairingPermission = false
                 self.refreshPermissions()
                 if task.terminationStatus == 0 {
-                    self.status = "旧授权已清除，请在系统设置中重新添加并开启鼠语。"
+                    self.status = "旧授权已清除，请在系统设置中重新添加并开启妙语。"
                     NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
                     self.openSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_" + (service == "ListenEvent" ? "ListenEvent" : "Accessibility"))
                 } else {
-                    self.status = "请在系统设置中移除鼠语旧条目，再用 ＋ 添加当前应用。"
+                    self.status = "请在系统设置中移除妙语旧条目，再用 ＋ 添加当前应用。"
                 }
             }
         }
@@ -1036,7 +1036,7 @@ private struct PermissionRow: View {
             Image(systemName: granted ? "checkmark.circle.fill" : "circle.fill")
                 .foregroundStyle(granted ? .green : .orange).font(.caption)
             Text(name)
-            HelpButton(title: name, text: "在系统设置中开启鼠语的\(name)权限。若开关已开启但这里未生效，先试“重新打开”。\n\n更新应用后仍无效时，点击下面的按钮清除鼠语这一项旧授权，再用 ＋ 添加当前 MouseTalk.app 并开启。需要你在系统设置中重新授权。", actionTitle: "清除旧授权并前往设置", action: repair)
+            HelpButton(title: name, text: "在系统设置中开启妙语的\(name)权限。若开关已开启但这里未生效，先试“重新打开”。\n\n更新应用后仍无效时，点击下面的按钮清除妙语这一项旧授权，再用 ＋ 添加当前 MouseTalk.app 并开启。需要你在系统设置中重新授权。", actionTitle: "清除旧授权并前往设置", action: repair)
             Spacer()
             Text(granted ? "已开启" : "未生效").font(.caption).foregroundStyle(.secondary)
             Button(granted ? "查看" : "去设置", action: openSettings)
@@ -1053,14 +1053,14 @@ private struct ContentView: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 12) {
                     Image(nsImage: MouseTalkBrand.image()).resizable().frame(width: 44, height: 44)
-                        .accessibilityLabel("鼠语标志")
+                        .accessibilityLabel("妙语标志")
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("鼠语 MouseTalk").font(.title2.bold())
+                        Text("妙语 MouseTalk").font(.title2.bold())
                         Text(controller.readiness).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Toggle("启用", isOn: $controller.isEnabled).toggleStyle(.switch)
-                    HelpButton(title: "鼠语", text: "用鼠标触发豆包等输入法已有的语音快捷键。鼠语负责按键，输入法负责识别语音，无需选择或绑定软件。\n\n设置自动保存。关掉窗口后仍在菜单栏运行，关闭“启用”恢复鼠标原来的动作。")
+                    HelpButton(title: "妙语", text: "用鼠标触发豆包等输入法已有的语音快捷键。妙语负责按键，输入法负责识别语音，无需选择或绑定软件。\n\n设置自动保存。关掉窗口后仍在菜单栏运行，关闭“启用”恢复鼠标原来的动作。")
                 }
 
                 GroupBox("权限") {
@@ -1103,7 +1103,7 @@ private struct ContentView: View {
                 GroupBox("鼠标按钮") {
                     VStack(spacing: 10) {
                         bindingRow("语音", button: controller.selectedButton, target: .voice, help: "点击绑定，再按一个鼠标侧键或滚轮中键。它会触发上方的语音快捷键。若输入法支持再按一次结束录音，同一个鼠标键也能结束录音。")
-                        bindingRow("发送", button: controller.returnButton, target: .confirm, help: "可选。相当于按回车，聊天软件需设为“回车发送”，否则可能换行。鼠语不会自动选择输入框。")
+                        bindingRow("发送", button: controller.returnButton, target: .confirm, help: "可选。相当于按回车，聊天软件需设为“回车发送”，否则可能换行。妙语不会自动选择输入框。")
                         bindingRow("删除", button: controller.backspaceButton, target: .backspace, help: "可选。按一下删除一次，按住连续删除。一个鼠标按钮只能绑定一个动作。")
                         bindingRow("复制", button: controller.copyButton, target: .copy, help: "可选。相当于 macOS 的 ⌘C，复制当前选中的内容。")
                         bindingRow("粘贴", button: controller.pasteButton, target: .paste, help: "可选。相当于 macOS 的 ⌘V，把剪贴板内容粘贴到当前输入位置。")
@@ -1143,7 +1143,7 @@ private struct ContentView: View {
                             Picker("兼容模式", selection: $controller.eventShape) {
                                 ForEach(EventShape.allCases) { Text($0.title).tag($0) }
                             }
-                            HelpButton(title: "按了没反应？", text: "先用键盘确认豆包的快捷键能用，再检查鼠语权限、绑定和启用开关。键盘能用而鼠标无效时，可以尝试兼容模式。\n\n滚轮中键通常可以绑定。PPI／DPI 键有时由鼠标硬件或驱动直接处理，如果点击“绑定”后按它没有反应，鼠语就无法读取这个键。")
+                            HelpButton(title: "按了没反应？", text: "先用键盘确认豆包的快捷键能用，再检查妙语权限、绑定和启用开关。键盘能用而鼠标无效时，可以尝试兼容模式。\n\n滚轮中键通常可以绑定。PPI／DPI 键有时由鼠标硬件或驱动直接处理，如果点击“绑定”后按它没有反应，妙语就无法读取这个键。")
                         }
                         HStack {
                             Picker("双击右键", selection: $controller.doubleRightAction) {
@@ -1230,7 +1230,7 @@ private struct ConflictCheckView: View {
                     Button("重新检查", action: controller.checkConflicts)
                         .disabled(controller.checkingConflicts)
                 }
-                Text("如果这里出现你要控制的语音软件，通常是正常的；如果出现其他软件，请检查是否会一起触发。鼠语不会改动它们的设置。")
+                Text("如果这里出现你要控制的语音软件，通常是正常的；如果出现其他软件，请检查是否会一起触发。妙语不会改动它们的设置。")
                     .font(.caption).foregroundStyle(.secondary)
                 if let report = controller.conflictReport {
                     ForEach(report.findings) { item in
@@ -1263,7 +1263,7 @@ private struct DoubleClickMouseApp: App {
     @StateObject private var controller = AppController()
 
     var body: some Scene {
-        WindowGroup("鼠语 MouseTalk", id: "settings") {
+        WindowGroup("妙语 MouseTalk", id: "settings") {
             ContentView()
                 .environmentObject(controller)
         }
@@ -1274,7 +1274,7 @@ private struct DoubleClickMouseApp: App {
                 .environmentObject(controller)
         } label: {
             Image(nsImage: MouseTalkBrand.image(size: 18, template: true))
-                .accessibilityLabel("鼠语 MouseTalk")
+                .accessibilityLabel("妙语 MouseTalk")
         }
     }
 }

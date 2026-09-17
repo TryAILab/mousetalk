@@ -4,7 +4,7 @@ title: "[反馈] "
 body:
   - type: markdown
     attributes:
-      value: "感谢试用鼠语。这里是公开反馈，请不要提交私人输入内容或密钥。"
+      value: "感谢试用妙语。这里是公开反馈，请不要提交私人输入内容或密钥。"
   - type: textarea
     id: description
     attributes:

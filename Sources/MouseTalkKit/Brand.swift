@@ -1,7 +1,7 @@
 import AppKit
 
 public enum MouseTalkBrand {
-    public static let name = "鼠语 MouseTalk"
+    public static let name = "妙语 MouseTalk"
 
     /// One vector mark for the settings header, menu bar and exported app icon.
     public static func image(size: CGFloat = 80, template: Bool = false) -> NSImage {
