@@ -22,6 +22,8 @@
 
 可在 [妙语下载页](https://www.tryailab.com/projects/mousetalk) 下载 **MouseTalk 0.5.3 通用 Mac 安装包**（Apple Silicon / Intel，macOS 13+）。解压后把 MouseTalk.app 拖入“应用程序”，再打开并按界面提示授予权限。
 
+源码中的 **0.6.0** 是尚未公开发布的待上线候选版本；官网仍提供 0.5.3。候选包的已验证项和剩余检查见 [0.6.0 候选说明](RELEASE-0.6.0.md)，一分钟实际演示流程见 [演示脚本](docs/DEMO.md)。
+
 当前下载包使用临时签名，**尚未经过 Apple 公证**。macOS 可能阻止首次打开；确认下载来源后，按 [Apple 官方说明](https://support.apple.com/zh-cn/102445) 在“系统设置 → 隐私与安全性”中处理。无需关闭系统安全保护。更新后可能需要重新授权。
 
 从源码构建需要 Swift 6（Xcode 16 或兼容的命令行工具）。发布包可复现：`./package-release.sh`。
