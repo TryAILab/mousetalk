@@ -88,7 +88,7 @@ private enum BindingTarget {
     var title: String {
         switch self {
         case .voice: "语音快捷键"
-        case .confirm: "回车发送"
+        case .confirm: "⌘回车发送"
         case .backspace: "退格"
         case .copy: "复制"
         case .paste: "粘贴"
@@ -148,7 +148,7 @@ private final class ShortcutEmitter {
     }
 
     func emitReturn() {
-        emitKey(36)
+        emitKey(36, flags: .maskCommand)
     }
 
     func emitCopy() {
@@ -853,7 +853,7 @@ private final class AppController: ObservableObject {
         if let target = captureTarget {
             let previous: [(Int?, String)] = [
                 (selectedButton, "语音快捷键"),
-                (returnButton, "回车发送"),
+                (returnButton, "⌘回车发送"),
                 (backspaceButton, "退格"),
                 (copyButton, "复制"),
                 (pasteButton, "粘贴"),
@@ -906,7 +906,7 @@ private final class AppController: ObservableObject {
             status = "鼠标按钮 \(button + 1) → \(shortcutTitle)"
         } else if returnButton == button {
             emitter.emitReturn()
-            status = "鼠标按钮 \(button + 1) → 回车"
+            status = "鼠标按钮 \(button + 1) → 发送（⌘↩）"
         } else if copyButton == button {
             emitter.emitCopy()
             status = "鼠标按钮 \(button + 1) → 复制（⌘C）"
@@ -968,7 +968,7 @@ private final class AppController: ObservableObject {
         checkingConflicts = true
         let bindings = [
             BindingSelection(action: "语音快捷键", keys: configuredKeys.map { Int($0.keyCode) }, mouseButton: selectedButton),
-            BindingSelection(action: "确认发送", keys: [36], mouseButton: returnButton),
+            BindingSelection(action: "确认发送", keys: [55, 36], mouseButton: returnButton),
             BindingSelection(action: "删除文字", keys: [51], mouseButton: backspaceButton),
         ]
         let context = ConflictScanner.context()
@@ -1103,7 +1103,7 @@ private struct ContentView: View {
                 GroupBox("鼠标按钮") {
                     VStack(spacing: 10) {
                         bindingRow("语音", button: controller.selectedButton, target: .voice, help: "点击绑定，再按一个鼠标侧键或滚轮中键。它会触发上方的语音快捷键。若输入法支持再按一次结束录音，同一个鼠标键也能结束录音。")
-                        bindingRow("发送", button: controller.returnButton, target: .confirm, help: "可选。相当于按回车，聊天软件需设为“回车发送”，否则可能换行。妙语不会自动选择输入框。")
+                        bindingRow("发送", button: controller.returnButton, target: .confirm, help: "可选。相当于按 ⌘回车（Command + Return），适合用 ⌘回车发送的聊天软件和 Agent。妙语不会自动选择输入框。")
                         bindingRow("删除", button: controller.backspaceButton, target: .backspace, help: "可选。按一下删除一次，按住连续删除。一个鼠标按钮只能绑定一个动作。")
                         bindingRow("复制", button: controller.copyButton, target: .copy, help: "可选。相当于 macOS 的 ⌘C，复制当前选中的内容。")
                         bindingRow("粘贴", button: controller.pasteButton, target: .paste, help: "可选。相当于 macOS 的 ⌘V，把剪贴板内容粘贴到当前输入位置。")

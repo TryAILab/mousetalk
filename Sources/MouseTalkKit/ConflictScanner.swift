@@ -55,7 +55,9 @@ public enum ShortcutMatch {
             let expected = selection.keys.reduce(UInt64(0)) { $0 | modifier($1) }
             return expected == ((flags & mask) | modifier(keyCode))
         }
-        return selection.keys == [keyCode] && flags & mask == 0
+        // Modifier keys in a combination such as Command+Return become required flags.
+        let expected = selection.keys.reduce(UInt64(0)) { $0 | modifier($1) }
+        return selection.keys.filter { modifier($0) == 0 } == [keyCode] && flags & mask == expected
     }
 
     public static func carbonFlags(_ raw: UInt32) -> UInt64 {

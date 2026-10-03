@@ -24,6 +24,13 @@ final class ConflictTests: XCTestCase {
         XCTAssertFalse(ShortcutMatch.matches(send, keyCode: 36, flags: ShortcutMatch.menuFlags(9)))
     }
 
+    func testCommandReturnRequiresCommandModifier() {
+        let send = BindingSelection(action: "发送", keys: [55, 36], mouseButton: 4)
+        XCTAssertTrue(ShortcutMatch.matches(send, keyCode: 36, flags: ShortcutMatch.command))
+        XCTAssertFalse(ShortcutMatch.matches(send, keyCode: 36, flags: 0))
+        XCTAssertFalse(ShortcutMatch.matches(send, keyCode: 36, flags: ShortcutMatch.command | ShortcutMatch.shift))
+    }
+
     func testCarbonFlagsAreConvertedInsteadOfTreatedAsCGFlags() {
         XCTAssertEqual(ShortcutMatch.carbonFlags(UInt32(controlKey | optionKey)), ShortcutMatch.control | ShortcutMatch.option)
         XCTAssertEqual(ShortcutMatch.carbonFlags(UInt32(cmdKey)), ShortcutMatch.command)
