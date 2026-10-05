@@ -271,7 +271,8 @@ private let mouseEventCallback: CGEventTapCallBack = { _, type, event, userInfo 
     guard let userInfo else { return Unmanaged.passUnretained(event) }
     let monitor = Unmanaged<MouseMonitor>.fromOpaque(userInfo).takeUnretainedValue()
 
-    if event.getIntegerValueField(.eventSourceUserData) == MouseMonitor.replayedEventMarker {
+    if event.getIntegerValueField(.eventSourceUserData) == MouseMonitor.replayedEventMarker
+        || monitor.isReplayed(event) {
         return Unmanaged.passUnretained(event)
     }
 
@@ -314,6 +315,11 @@ private final class MouseMonitor {
     private var pendingRightUp: CGEvent?
     private var rightClickTimer: Timer?
     private var suppressNextRightUp = false
+    // Copies keep the original timestamp. Remembering replayed timestamps
+    // stops a replay from being held and replayed again even when the
+    // marker does not survive, which otherwise loops every double-click
+    // interval and drags the cursor back to the first click.
+    private var replayedTimestamps: [CGEventTimestamp] = []
 
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -435,6 +441,12 @@ private final class MouseMonitor {
         let up = pendingRightUp
         pendingRightDown = nil
         pendingRightUp = nil
+        replayedTimestamps = Array((replayedTimestamps + [down.timestamp] + (up.map { [$0.timestamp] } ?? [])).suffix(8))
+        // Replay where the cursor is now; the original location would warp it back.
+        if let location = CGEvent(source: nil)?.location {
+            down.location = location
+            up?.location = location
+        }
         down.setIntegerValueField(.eventSourceUserData, value: Self.replayedEventMarker)
         down.setIntegerValueField(.mouseEventClickState, value: 1)
         down.post(tap: .cghidEventTap)
@@ -443,6 +455,10 @@ private final class MouseMonitor {
             up.setIntegerValueField(.mouseEventClickState, value: 1)
             up.post(tap: .cghidEventTap)
         }
+    }
+
+    func isReplayed(_ event: CGEvent) -> Bool {
+        replayedTimestamps.contains(event.timestamp)
     }
 
     func shouldSuppress(button: Int) -> Bool {
