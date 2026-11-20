@@ -55,6 +55,24 @@ private enum OutputKey: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Device-dependent bit a physical keyboard sets alongside `flag`
+    /// (NX_DEVICE*KEYMASK). Input methods such as Doubao tell left from
+    /// right Option, Control or Command by this bit; without it a synthetic
+    /// "right Option" is ambiguous and is often ignored.
+    var deviceFlag: CGEventFlags {
+        switch self {
+        case .fn: []
+        case .leftControl: CGEventFlags(rawValue: 0x0000_0001)
+        case .rightControl: CGEventFlags(rawValue: 0x0000_2000)
+        case .leftOption: CGEventFlags(rawValue: 0x0000_0020)
+        case .rightOption: CGEventFlags(rawValue: 0x0000_0040)
+        case .leftCommand: CGEventFlags(rawValue: 0x0000_0008)
+        case .rightCommand: CGEventFlags(rawValue: 0x0000_0010)
+        }
+    }
+
+    var physicalFlags: CGEventFlags { flag.union(deviceFlag) }
+
     static func load(rawValue: String?) -> OutputKey? {
         guard let rawValue else { return nil }
         // 0.3.0 called keycode 59 simply "control". Preserve existing users
@@ -125,26 +143,43 @@ private final class ShortcutEmitter {
             }
             guard !uniqueKeys.isEmpty else { return }
 
-            var baseFlags = CGEventSource.flagsState(.combinedSessionState)
+            // Mirror what a physical keyboard reports: only real modifier
+            // bits (device-independent and device-dependent) plus the
+            // non-coalesced bit, never stray session bits.
+            var baseFlags = Self.physicalModifierFlags(
+                CGEventSource.flagsState(.combinedSessionState)
+            )
             for key in uniqueKeys {
-                baseFlags.remove(key.flag)
+                baseFlags.remove(key.physicalFlags)
             }
 
             var activeKeys: [OutputKey] = []
             for key in uniqueKeys {
                 activeKeys.append(key)
-                let flags = activeKeys.reduce(baseFlags) { $0.union($1.flag) }
+                let flags = activeKeys.reduce(baseFlags) { $0.union($1.physicalFlags) }
                 self.post(key: key, keyDown: true, flags: flags, shape: shape, source: source)
                 usleep(15_000)
             }
             usleep(60_000)
             for key in uniqueKeys.reversed() {
                 activeKeys.removeAll { $0 == key }
-                let flags = activeKeys.reduce(baseFlags) { $0.union($1.flag) }
+                let flags = activeKeys.reduce(baseFlags) { $0.union($1.physicalFlags) }
                 self.post(key: key, keyDown: false, flags: flags, shape: shape, source: source)
                 usleep(15_000)
             }
         }
+    }
+
+    static func physicalModifierFlags(_ flags: CGEventFlags) -> CGEventFlags {
+        let deviceIndependent: CGEventFlags = [
+            .maskAlphaShift, .maskShift, .maskControl, .maskAlternate,
+            .maskCommand, .maskSecondaryFn,
+        ]
+        // NX_DEVICE{L,R}{CTL,SHIFT,CMD,ALT}KEYMASK
+        let deviceDependent: UInt64 = 0x0000_207F
+        return CGEventFlags(
+            rawValue: (flags.rawValue & (deviceIndependent.rawValue | deviceDependent))
+        ).union(.maskNonCoalesced)
     }
 
     func emitReturn() {
