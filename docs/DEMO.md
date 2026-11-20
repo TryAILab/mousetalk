@@ -1,10 +1,10 @@
 # 妙语 MouseTalk：一分钟演示
 
-目标输出文件：`~/Movies/MouseTalk/MouseTalk-0.6.0-demo.mov`
+目标输出文件：`~/Movies/MouseTalk/MouseTalk-0.6.1-demo.mov`
 
 ## 录制前准备
 
-1. 把与当前源码一致、显示名为“妙语 MouseTalk”的 0.6.0 构建安装到 `/Applications/MouseTalk.app`，退出旧进程后重新打开。
+1. 把与当前源码一致、显示名为“妙语 MouseTalk”的 0.6.1 构建安装到 `/Applications/MouseTalk.app`，退出旧进程后重新打开。
 2. 在系统设置中确认“输入监控”和“辅助功能”均已授权，妙语状态显示“已就绪”。
 3. 豆包输入法和妙语都设置为同一个单键快捷键；优先使用“右 Option + 标准模式”。兼容模式必须先确认不会一次点击触发两次。
 4. 绑定一个侧键为“语音”、另一个侧键为“发送”。若要展示连续删除，可把滚轮中键绑定为“删除”。

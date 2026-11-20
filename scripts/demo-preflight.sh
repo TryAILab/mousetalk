@@ -2,7 +2,7 @@
 set -u
 
 app="${MOUSETALK_APP:-/Applications/MouseTalk.app}"
-expected_version="${MOUSETALK_VERSION:-0.6.0}"
+expected_version="${MOUSETALK_VERSION:-0.6.1}"
 bundle_id="io.github.aaronz021.double-click-mouse"
 failures=0
 
